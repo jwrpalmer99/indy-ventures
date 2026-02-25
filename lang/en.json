@@ -1,0 +1,130 @@
+{
+  "INDYFX": {
+    "RegionBehaviorLabel": "indyFX"
+  },
+  "INDYVENTURES": {
+    "Settings": {
+      "IntegrateBastion": {
+        "Name": "Integrate with Bastion Turns",
+        "Hint": "Automatically process venture results when D&D5e bastion turn summaries are created."
+      },
+      "PostChatSummary": {
+        "Name": "Post Venture Summary Cards",
+        "Hint": "Create a venture summary chat card after each bastion turn."
+      },
+      "HideVentureHirelings": {
+        "Name": "Hide Venture Hirelings",
+        "Hint": "When enabled, venture-enabled facilities hide bastion hireling slots."
+      },
+      "DebugLogging": {
+        "Name": "Enable Debug Logging",
+        "Hint": "If enabled, the module writes debug messages to the browser console."
+      }
+    },
+    "Preset": {
+      "Custom": "Custom",
+      "Tavern": "Mangy Minotaur Tavern",
+      "Cult": "Cult of the Minotaur"
+    },
+    "Sheet": {
+      "Legend": "Venture Automation",
+      "Enabled": "Enable Venture",
+      "EnabledHint": "If enabled, this special facility resolves venture profit/loss each bastion turn.",
+      "Preset": "Preset",
+      "VentureName": "Venture Name",
+      "ProfitDie": "Profit Die",
+      "LossDie": "Base Loss Die",
+      "LossModifier": "Loss Die Modifier",
+      "SuccessThreshold": "Successes to Grow",
+      "AutoCoverLoss": "Auto-cover Deficits (GP)",
+      "AutoCoverLossHint": "When enabled, venture deficits are paid from the actor's GP before degradation.",
+      "Boons": "Boons",
+      "OpenBoonEditor": "Open Boon Editor",
+      "BoonsHint": "Configured boons: {count}. Format each line as Name | Cost | Description | Reward UUID (optional) | Purchases Per Bastion Turn (optional; default 1, use 'unlimited' for no cap) | Purchase Window (optional: default, loss, profit).",
+      "BoonsDropHint": "Tip: drag an Item or Active Effect onto the boons field to insert an @UUID reward reference.",
+      "BoonTableTitle": "Title",
+      "BoonTableCost": "Cost",
+      "BoonTableReward": "Reward",
+      "BoonTableCount": "Count",
+      "BoonTableWindow": "Window",
+      "BoonTableEmpty": "No boons configured.",
+      "CurrentProfitDie": "Current Profit Die",
+      "SuccessStreak": "Current Success Streak",
+      "Treasury": "Venture Treasury (GP)",
+      "Failed": "Venture Failed"
+    },
+    "BoonPurchaseWhen": {
+      "Default": "Any Turn",
+      "Loss": "Loss or Break-even Only",
+      "Profit": "Profit or Break-even Only"
+    },
+    "Chat": {
+      "Title": "{actor}'s Venture Results",
+      "RollLine": "Profit: {profit} ({profitDie}) | Loss: {loss} ({lossDie})",
+      "ProfitRollBonus": "Profit bonus applied: {raw} + {bonus} = {total}",
+      "NextProfitDie": "Current profit die: {die}",
+      "NetLine": "Income: {income} gp | Outgoings: {outgoings} gp | Net: {net} gp | Treasury: {treasury} gp",
+      "ClaimTreasury": "Claim to Character GP",
+      "Unlimited": "unlimited",
+      "BoonTurnLimit": "Purchased this bastion turn: {purchased}/{limit}",
+      "BoonTurnLimitUnlimited": "Purchased this bastion turn: {purchased} (no limit)",
+      "BoonPurchaseWindow": "Purchase Window: {mode}",
+      "BoonPurchaseWindowBlocked": "Not purchasable this turn due to purchase window ({mode}).",
+      "BoonRewardLabel": "Reward on purchase:",
+      "BoonReward": "Reward on purchase: {reward}",
+      "DeficitCovered": "Remaining deficit of {character} gp was automatically covered from character funds.",
+      "DeficitCoveredManual": "{decider} chose to cover the remaining {character} gp deficit from character funds.",
+      "DeficitSources": "Loss coverage used {treasury} gp from venture treasury and {character} gp from character GP.",
+      "DeficitDeclined": "{decider} declined to cover this venture's deficit.",
+      "DeficitTimedOut": "No response from {decider}; deficit coverage timed out.",
+      "DeficitRemaining": "{uncovered} gp of deficit remained uncovered.",
+      "DeficitInsufficient": "Insufficient character GP to cover the remaining {deficit} gp deficit.",
+      "Grew": "Venture momentum increased. Profit die improved.",
+      "Degraded": "Venture underperformed. Profit die degraded.",
+      "Failed": "The venture failed and has been disabled."
+    },
+    "BoonEditor": {
+      "Title": "Edit Venture Boons",
+      "Help": "Manage boon entries in a table. Empty names are ignored when saving. Drag an Item or Active Effect onto a Reward field to insert a UUID link. Purchase Window controls when the boon can be bought; break-even qualifies as both profit and loss.",
+      "Name": "Name",
+      "Cost": "Cost",
+      "Description": "Description",
+      "Reward": "Reward UUID",
+      "RewardPlaceholder": "@UUID[...]",
+      "Limit": "Per-Turn Limit",
+      "LimitPlaceholder": "Limit (default 1 / unlimited)",
+      "PurchaseWhen": "Purchase Window",
+      "Add": "Add Boon",
+      "Remove": "Remove Boon",
+      "Save": "Apply",
+      "Cancel": "Cancel"
+    },
+    "Prompt": {
+      "Title": "Cover Venture Deficit?",
+      "Content": "<p><strong>{decider}</strong>, do you want to cover this venture loss?</p><p>Actor: <strong>{actor}</strong><br>Venture: <strong>{venture}</strong><br>Total Deficit: <strong>{deficit} gp</strong><br>From Venture Treasury: <strong>{treasuryCover} gp</strong><br>From Character GP: <strong>{characterCover} gp</strong><br>Available Character GP: <strong>{availableGp} gp</strong></p>",
+      "ClaimTitle": "Claim Venture Treasury",
+      "ClaimConfirm": "Claim GP",
+      "ClaimContent": "<p>How much GP do you want to claim from <strong>{venture}</strong>?</p><div class=\"form-group\"><label>Amount (max {maxAmount} gp)</label><div class=\"form-fields\"><input type=\"number\" name=\"amount\" min=\"1\" max=\"{maxAmount}\" step=\"1\" value=\"{maxAmount}\" /></div></div>"
+    },
+    "Errors": {
+      "GMOnly": "Only a GM can purchase venture boons.",
+      "NotEnoughTreasury": "This venture does not have enough treasury for that boon.",
+      "NoTreasury": "This venture has no treasury to claim.",
+      "NotOwner": "You must own this actor (or be GM) to manage venture treasury.",
+      "InvalidClaimAmount": "Enter a claim amount between 1 and {maxAmount} gp.",
+      "BoonDropMissingUuid": "Dropped document is missing a UUID reference.",
+      "BoonTurnLimitReached": "This boon has already reached its purchase limit for this bastion turn ({purchased}/{limit}).",
+      "BoonPurchaseWindowBlocked": "This boon cannot be purchased this turn due to its purchase window ({mode}).",
+      "StaleVentureSummary": "This summary is from an older bastion turn. Use the latest venture summary card.",
+      "BoonDurationFormulaInvalid": "Invalid boon effect duration formula: {formula}.",
+      "BoonRewardMissing": "Boon reward not found: {reward}.",
+      "BoonRewardUnsupported": "Unsupported boon reward type '{type}' for reward '{reward}'. Use an Item or ActiveEffect UUID."
+    },
+    "Notifications": {
+      "BoonPurchased": "Purchased boon '{boon}' for {venture}.",
+      "BoonPurchasedReward": "Purchased boon '{boon}' for {venture} and granted reward '{reward}'.",
+      "BoonRewardUuidInserted": "Inserted boon reward UUID into the boons list.",
+      "ClaimedTreasury": "Claimed {amount} gp from {venture} to {actor}."
+    }
+  }
+}

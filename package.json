@@ -1,0 +1,16 @@
+{
+    "name": "indy-ventures",
+    "version": "1.0.0",
+    "description": "A module to run shaders in Foundry V13.",
+    "main": "index.js",
+    "scripts": {
+        "createSymlinks": "node ./tools/create-symlinks.mjs"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "dependencies": {
+        "js-yaml": "^4.1.1"
+    }
+}

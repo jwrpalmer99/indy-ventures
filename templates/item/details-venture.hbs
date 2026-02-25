@@ -1,0 +1,159 @@
+<fieldset class="card indy-ventures-sheet">
+  <legend>{{ localize "INDYVENTURES.Sheet.Legend" }}</legend>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.Enabled" }}</label>
+    <div class="form-fields">
+      <input type="checkbox" name="flags.indy-ventures.config.enabled" {{ checked indyVentures.config.enabled }}>
+    </div>
+    <p class="hint">{{ localize "INDYVENTURES.Sheet.EnabledHint" }}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.Preset" }}</label>
+    <div class="form-fields">
+      <select name="flags.indy-ventures.config.preset">
+        {{ selectOptions indyVentures.presetOptions selected=indyVentures.config.preset localize=false }}
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.VentureName" }}</label>
+    <div class="form-fields">
+      <input type="text" name="flags.indy-ventures.config.ventureName" value="{{ indyVentures.config.ventureName }}">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.ProfitDie" }}</label>
+    <div class="form-fields">
+      <select name="flags.indy-ventures.config.profitDie">
+        {{ selectOptions indyVentures.diceOptions selected=indyVentures.config.profitDie localize=false }}
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.LossDie" }}</label>
+    <div class="form-fields">
+      <select name="flags.indy-ventures.config.lossDie">
+        {{ selectOptions indyVentures.diceOptions selected=indyVentures.config.lossDie localize=false }}
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group slim">
+    <label>{{ localize "INDYVENTURES.Sheet.LossModifier" }}</label>
+    <div class="form-fields">
+      <input type="number" min="-4" max="4" step="1"
+             name="flags.indy-ventures.config.lossModifier"
+             value="{{ indyVentures.config.lossModifier }}">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.SuccessThreshold" }}</label>
+    <div class="form-fields">
+      <input type="number" min="1" max="12" step="1"
+             name="flags.indy-ventures.config.successThreshold"
+             value="{{ indyVentures.config.successThreshold }}">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.AutoCoverLoss" }}</label>
+    <div class="form-fields">
+      <input type="checkbox"
+             name="flags.indy-ventures.config.autoCoverLoss"
+             {{ checked indyVentures.config.autoCoverLoss }}>
+    </div>
+    <p class="hint">{{ localize "INDYVENTURES.Sheet.AutoCoverLossHint" }}</p>
+  </div>
+
+  <div class="form-group stacked">
+    <div class="form-fields indy-boons-fields">
+      <button type="button" class="indy-boon-editor-open" data-action="openBoonEditor">{{ localize "INDYVENTURES.Sheet.OpenBoonEditor" }}</button>
+      <textarea class="indy-boons-text" name="flags.indy-ventures.config.boonsText" rows="6" hidden>{{ indyVentures.config.boonsText }}</textarea>
+      <div class="indy-boons-table-wrap">
+        <table class="indy-boons-table">
+          <thead>
+            <tr>
+              <th>{{ localize "INDYVENTURES.Sheet.BoonTableTitle" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.BoonTableCost" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.BoonTableReward" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.BoonTableCount" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.BoonTableWindow" }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#if indyVentures.boons.length}}
+              {{#each indyVentures.boons}}
+                <tr>
+                  <td>
+                    {{#if description}}
+                      <span class="indy-boon-title" data-tooltip="{{ description }}">{{ name }}</span>
+                    {{else}}
+                      <span class="indy-boon-title">{{ name }}</span>
+                    {{/if}}
+                  </td>
+                  <td>{{ cost }}</td>
+                  <td>
+                    {{#if rewardUuid}}
+                      <a class="content-link" data-uuid="{{ rewardUuid }}" data-link>
+                        {{#if rewardImg}}
+                          <img class="indy-boon-reward-icon" src="{{ rewardImg }}" alt="{{ rewardName }}">
+                        {{/if}}
+                        {{ rewardName }}
+                      </a>
+                    {{else}}
+                      {{ rewardName }}
+                    {{/if}}
+                  </td>
+                  <td>{{ countDisplay }}</td>
+                  <td>
+                    <i class="{{ purchaseWhenIcon }}" data-tooltip="{{ purchaseWhenLabel }}" aria-label="{{ purchaseWhenLabel }}"></i>
+                  </td>
+                </tr>
+              {{/each}}
+            {{else}}
+              <tr>
+                <td colspan="5" class="hint">{{ localize "INDYVENTURES.Sheet.BoonTableEmpty" }}</td>
+              </tr>
+            {{/if}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-group slim">
+    <label>{{ localize "INDYVENTURES.Sheet.CurrentProfitDie" }}</label>
+    <div class="form-fields">
+      <select name="flags.indy-ventures.state.currentProfitDie">
+        {{ selectOptions indyVentures.diceOptions selected=indyVentures.state.currentProfitDie localize=false }}
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group slim">
+    <label>{{ localize "INDYVENTURES.Sheet.SuccessStreak" }}</label>
+    <div class="form-fields">
+      <input type="number" min="0" step="1" name="flags.indy-ventures.state.streak" value="{{ indyVentures.state.streak }}">
+    </div>
+  </div>
+
+  <div class="form-group slim">
+    <label>{{ localize "INDYVENTURES.Sheet.Treasury" }}</label>
+    <div class="form-fields">
+      <input type="number" min="0" step="1" name="flags.indy-ventures.state.treasury" value="{{ indyVentures.state.treasury }}">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.Failed" }}</label>
+    <div class="form-fields">
+      <input type="checkbox" name="flags.indy-ventures.state.failed" {{ checked indyVentures.state.failed }}>
+    </div>
+  </div>
+</fieldset>

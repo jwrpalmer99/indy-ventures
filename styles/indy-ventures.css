@@ -1,0 +1,263 @@
+.indy-ventures-sheet .form-group.stacked .form-fields {
+  align-items: stretch;
+}
+
+.indy-ventures-sheet .form-fields.indy-boons-fields {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.4rem;
+}
+
+.indy-ventures-sheet .indy-boon-editor-open {
+  font-size: 0.8rem;
+  line-height: 1.2;
+  padding: 0.35rem 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  min-height: 2rem;
+}
+
+.indy-ventures-sheet .indy-boons-text {
+  width: 100%;
+  min-height: 7rem;
+  font-family: monospace;
+  line-height: 1.3;
+  resize: vertical;
+}
+
+.indy-ventures-sheet .indy-boons-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.indy-ventures-sheet .indy-boons-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.indy-ventures-sheet .indy-boons-table th,
+.indy-ventures-sheet .indy-boons-table td {
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  vertical-align: middle;
+}
+
+.indy-ventures-sheet .indy-boons-table th:last-child,
+.indy-ventures-sheet .indy-boons-table td:last-child {
+  text-align: center;
+  width: 56px;
+}
+
+.indy-ventures-sheet .indy-boons-table tbody tr:nth-child(odd) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.indy-ventures-sheet .indy-boons-table .content-link {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.indy-ventures-sheet .indy-boons-table .indy-boon-reward-icon {
+  width: 1rem;
+  height: 1rem;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.indy-ventures-sheet .indy-boon-title[title] {
+  cursor: help;
+}
+
+/* When venture automation is enabled, suppress standard facility order/crafting panels. */
+.dnd5e2.item .details.tab:has(input[name="flags.indy-ventures.config.enabled"]:checked) > fieldset:nth-of-type(n + 3) {
+  display: none;
+}
+
+.indy-ventures-card {
+  border: 1px solid var(--dnd5e-color-card-border, #786452);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+.indy-ventures-card .card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.indy-ventures-card .indy-venture-row {
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.indy-ventures-card .indy-venture-row:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.indy-ventures-card .indy-venture-row.failed h4 {
+  color: #8f2b2b;
+}
+
+.indy-ventures-card .indy-venture-row header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.indy-ventures-card .indy-venture-row h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.indy-ventures-card .indy-venture-row p {
+  margin: 0.25rem 0;
+}
+
+.indy-ventures-card .indy-venture-boons {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.indy-ventures-card .indy-venture-boon {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  padding: 0.28rem 0.4rem;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.indy-ventures-card .indy-venture-boon-header {
+  display: block;
+}
+
+.indy-ventures-card .indy-venture-boon button {
+  width: 100%;
+  margin: 0;
+}
+
+.indy-ventures-card .indy-venture-boon-body {
+  margin-top: 0.2rem;
+  padding-left: 0.35rem;
+  border-left: 2px solid rgba(0, 0, 0, 0.14);
+  display: grid;
+  gap: 0.08rem;
+}
+
+.indy-ventures-card .indy-venture-boon p {
+  margin: 0;
+  line-height: 1.18;
+}
+
+.indy-ventures-card .indy-venture-boon .boon-description {
+  margin-bottom: 0.06rem;
+}
+
+.indy-ventures-card .indy-venture-boon .boon-meta {
+  opacity: 0.92;
+}
+
+.indy-ventures-card .indy-venture-actions {
+  margin: 0.3rem 0 0.4rem;
+}
+
+.indy-ventures-card .indy-venture-boons button:disabled {
+  opacity: 0.6;
+}
+
+.indy-ventures-card .content-link {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.indy-ventures-card .indy-boon-reward-icon {
+  width: 1rem;
+  height: 1rem;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.indy-boon-editor-app {
+  min-width: 860px;
+}
+
+.indy-boon-editor .hint {
+  margin: 0 0 0.5rem;
+}
+
+.indy-boon-editor .indy-boon-editor-table {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  padding: 0.35rem;
+}
+
+.indy-boon-editor .indy-boon-head,
+.indy-boon-editor .indy-boon-editor-grid {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.indy-boon-editor .indy-boon-head,
+.indy-boon-editor .indy-boon-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.2fr) 90px minmax(200px, 1.45fr) minmax(220px, 1.55fr) 120px 190px 36px;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.indy-boon-editor .indy-boon-head {
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  opacity: 0.9;
+  padding: 0.1rem 0.2rem;
+}
+
+.indy-boon-editor .indy-boon-row :is(input, select) {
+  width: 100%;
+}
+
+.indy-boon-editor .indy-boon-row .boon-remove {
+  height: 34px;
+  min-width: 34px;
+}
+
+.indy-boon-editor .indy-boon-editor-actions {
+  margin-top: 0.6rem;
+}
+
+.indy-boon-editor .indy-boon-editor-actions .indy-boon-add {
+  width: 100%;
+}
+
+.indy-boon-editor .indy-boon-editor-footer {
+  margin-top: 0.6rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+@media (max-width: 920px) {
+  .indy-ventures-sheet .form-fields.indy-boons-fields {
+    width: 100%;
+  }
+
+  .indy-boon-editor-app {
+    min-width: 0;
+  }
+
+  .indy-boon-editor .indy-boon-head {
+    display: none;
+  }
+
+  .indy-boon-editor .indy-boon-row {
+    grid-template-columns: 1fr;
+  }
+}

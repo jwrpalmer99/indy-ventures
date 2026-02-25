@@ -1,0 +1,113 @@
+<div class="chat-card indy-ventures-card">
+  <header class="card-header">
+    <h3>{{ localize "INDYVENTURES.Chat.Title" actor=actor.name }}</h3>
+  </header>
+
+  <section class="card-content">
+    {{#each results}}
+      <article class="indy-venture-row {{#if failed}}failed{{/if}}">
+        <header>
+          <h4>{{ ventureName }}</h4>
+          <span>{{ facilityName }}</span>
+        </header>
+
+        <p>
+          {{ localize "INDYVENTURES.Chat.RollLine"
+            profit=profitRollTotal
+            profitDie=profitDie
+            loss=lossRollTotal
+            lossDie=lossDie }}
+        </p>
+        {{#if profitRollBonus}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.ProfitRollBonus" bonus=profitRollBonus raw=rawProfitRollTotal total=profitRollTotal }}</p>
+        {{/if}}
+        <p class="hint">{{ localize "INDYVENTURES.Chat.NextProfitDie" die=nextProfitDie }}</p>
+        <p>
+          {{ localize "INDYVENTURES.Chat.NetLine"
+            income=income
+            outgoings=outgoings
+            net=net
+            treasury=treasury }}
+        </p>
+        {{#if treasury}}
+          <div class="indy-venture-actions">
+            <button type="button" data-action="claimTreasury" data-facility-uuid="{{ facilityUuid }}">
+              {{ localize "INDYVENTURES.Chat.ClaimTreasury" }}
+            </button>
+          </div>
+        {{/if}}
+
+        {{#if autoCovered}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitCovered" character=characterCovered }}</p>
+        {{/if}}
+        {{#if manualCovered}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitCoveredManual" character=characterCovered decider=promptUserName }}</p>
+        {{/if}}
+        {{#if hasCoverageSources}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitSources" treasury=treasuryCovered character=characterCovered }}</p>
+        {{/if}}
+        {{#if promptDeclined}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitDeclined" decider=promptUserName }}</p>
+        {{/if}}
+        {{#if promptTimedOut}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitTimedOut" decider=promptUserName }}</p>
+        {{/if}}
+        {{#if uncoveredDeficit}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitRemaining" uncovered=uncoveredDeficit }}</p>
+        {{/if}}
+        {{#if insufficientFunds}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitInsufficient" deficit=uncoveredDeficit }}</p>
+        {{/if}}
+        {{#if grew}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.Grew" }}</p>
+        {{/if}}
+        {{#if degraded}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.Degraded" }}</p>
+        {{/if}}
+        {{#if failed}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.Failed" }}</p>
+        {{/if}}
+
+        {{#if boons.length}}
+          <div class="indy-venture-boons">
+            {{#each boons}}
+              <div class="indy-venture-boon">
+                <div class="indy-venture-boon-header">
+                  <button type="button"
+                          data-action="purchaseBoon"
+                          data-facility-uuid="{{ ../facilityUuid }}"
+                          data-boon-index="{{ index }}"
+                          {{#unless purchasable}}disabled{{/unless}}>
+                    {{ name }} ({{ cost }} gp)
+                  </button>
+                </div>
+                <div class="indy-venture-boon-body">
+                  {{#if description}}
+                    <p class="hint boon-description">{{ description }}</p>
+                  {{/if}}
+                  {{#if perTurnLimit}}
+                    <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimit" purchased=purchasedThisTurn limit=perTurnLimit }}</p>
+                  {{/if}}
+                  {{#unless perTurnLimit}}
+                    <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimitUnlimited" purchased=purchasedThisTurn }}</p>
+                  {{/unless}}
+                  {{#if rewardUuid}}
+                    <p class="hint boon-meta">
+                      {{ localize "INDYVENTURES.Chat.BoonRewardLabel" }}
+                      <a class="content-link" data-uuid="{{ rewardUuid }}" data-link>
+                        {{#if rewardImg}}
+                          <img class="indy-boon-reward-icon" src="{{ rewardImg }}" alt="{{ rewardName }}">
+                        {{/if}}
+                        {{ rewardName }}
+                      </a>
+                    </p>
+                  {{/if}}
+                </div>
+              </div>
+            {{/each}}
+          </div>
+        {{/if}}
+      </article>
+    {{/each}}
+  </section>
+</div>

@@ -1,0 +1,53 @@
+{
+  "id": "indy-ventures",
+  "title": "Indy Ventures",
+  "description": "Adds venture-style business automation to D&D5e bastions.",
+  "version": "#{VERSION}#",
+  "authors": [{ "name": "PinguTwo" }],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "dnd5e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "5.2.5"
+        }
+      }
+    ]
+  },
+  "url": "#{URL}#",
+  "manifest": "#{MANIFEST}#",
+  "download": "#{DOWNLOAD}#",
+  "socket": true,
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "packs": [
+    {
+      "name": "venture-facilities",
+      "label": "Venture Facilities",
+      "type": "Item",
+      "path": "packs/venture-facilities.db",
+      "system": "dnd5e",
+      "flags": {
+        "dnd5e": {
+          "types": ["facility"]
+        }
+      },
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    }
+  ],
+  "esmodules": ["scripts/main.js"],
+  "styles": ["styles/indy-ventures.css"]
+}
