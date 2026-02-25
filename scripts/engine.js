@@ -6,12 +6,14 @@ import {
   updateFacilityVenture
 } from "./config.js";
 import {
+  buildBoonKey,
   boonPurchaseWhenAllows,
   getActorGp,
   parseBoonPerTurnLimit,
   parseBoonPurchaseWhen,
   shiftDie
 } from "./utils.js";
+import { moduleLog } from "./logger.js";
 
 const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
 const COVERAGE_TIMEOUT_MS = 60_000;
@@ -21,6 +23,54 @@ const VENTURE_MODIFIER_CHANGE_PREFIX = `${VENTURE_MODIFIER_FLAG}.`;
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
+}
+
+async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
+  const title = game.i18n.localize("INDYVENTURES.RollPrompt.Title");
+  const content = game.i18n.format("INDYVENTURES.RollPrompt.Content", {
+    rollLabel,
+    formula,
+    facility: facilityName
+  });
+  const rollButton = game.i18n.localize("INDYVENTURES.RollPrompt.Roll");
+  const flavor = game.i18n.format("INDYVENTURES.RollPrompt.Flavor", {
+    rollLabel,
+    facility: facilityName
+  });
+
+  const doRoll = async () => {
+    const roll = await Roll.create(formula).evaluate({ allowInteractive: true });
+    await roll.toMessage({
+      speaker: getSpeaker(actor),
+      flavor
+    });
+    return roll;
+  };
+
+  if (foundry.applications?.api?.DialogV2?.prompt) {
+    return foundry.applications.api.DialogV2.prompt({
+      window: { title, resizable: true },
+      content,
+      rejectClose: true,
+      ok: {
+        label: rollButton,
+        callback: async () => doRoll()
+      }
+    });
+  }
+
+  if (foundry.applications?.api?.Dialog?.prompt) {
+    return foundry.applications.api.Dialog.prompt({
+      window: { title, resizable: true },
+      content,
+      ok: {
+        label: rollButton,
+        callback: async () => doRoll()
+      }
+    });
+  }
+
+  return doRoll();
 }
 
 function parseEffectNumber(value, fallback = 0) {
@@ -38,6 +88,20 @@ function parseEffectBoolean(value, fallback = false) {
 function parseEffectDie(value) {
   const die = String(value ?? "").trim().toLowerCase();
   return DICE_STEPS.includes(die) ? die : null;
+}
+
+function summarizeModifierEffect(modifier) {
+  const parts = [];
+  if (modifier.profitDieStep) parts.push(`profit die step ${modifier.profitDieStep > 0 ? "+" : ""}${modifier.profitDieStep}`);
+  if (modifier.profitDieOverride) parts.push(`profit die ${modifier.profitDieOverride}`);
+  if (modifier.minProfitDie) parts.push(`minimum profit die ${modifier.minProfitDie}`);
+  if (modifier.lossDieStep) parts.push(`loss die step ${modifier.lossDieStep > 0 ? "+" : ""}${modifier.lossDieStep}`);
+  if (modifier.lossDieOverride) parts.push(`loss die ${modifier.lossDieOverride}`);
+  if (modifier.profitRollBonus) parts.push(`profit bonus ${modifier.profitRollBonus > 0 ? "+" : ""}${modifier.profitRollBonus}`);
+  if (modifier.bastionDurationType === "nextBastionTurn") {
+    parts.push("duration: 1 bastion turn");
+  }
+  return parts.join(", ");
 }
 
 function dieIndex(die) {
@@ -69,16 +133,21 @@ function getEffectModifierData(effect) {
     foundry.utils.setProperty(fromChanges, subKey, change?.value);
   }
 
-  const raw = foundry.utils.mergeObject(fromFlags, fromChanges, {
+  // Flags are the runtime source of truth; changes are a display/compatibility mirror.
+  const raw = foundry.utils.mergeObject(fromChanges, fromFlags, {
     inplace: false,
     recursive: true,
     insertKeys: true
   });
   const facilityId = String(raw.facilityId ?? raw.facilityUuid ?? "").trim();
+  const bastionDurationType = String(raw.bastionDurationType ?? "").trim();
   const remainingTurnsRaw = raw.remainingTurns;
-  const remainingTurns = ((remainingTurnsRaw === undefined) || (remainingTurnsRaw === null) || (remainingTurnsRaw === ""))
+  let remainingTurns = ((remainingTurnsRaw === undefined) || (remainingTurnsRaw === null) || (remainingTurnsRaw === ""))
     ? null
     : Math.max(parseEffectNumber(remainingTurnsRaw, 0), 0);
+  if ((bastionDurationType === "nextBastionTurn") && (remainingTurns === null)) {
+    remainingTurns = 1;
+  }
 
   return {
     effectId: effect.id,
@@ -91,10 +160,21 @@ function getEffectModifierData(effect) {
     lossDieStep: parseEffectNumber(raw.lossDieStep, 0),
     lossDieOverride: parseEffectDie(raw.lossDieOverride),
     profitRollBonus: parseEffectNumber(raw.profitRollBonus, 0),
+    bastionDurationType,
     remainingTurns,
     consumePerTurn: parseEffectBoolean(raw.consumePerTurn, true),
     sourceHasFlag
   };
+}
+
+function effectHasVentureModifierDefinition(effect) {
+  const rawFlagData = effect.getFlag(MODULE_ID, "ventureModifier");
+  const hasFlagData = rawFlagData && (typeof rawFlagData === "object") && (Object.keys(rawFlagData).length > 0);
+  if (hasFlagData) return true;
+  return (effect.changes ?? []).some(change => {
+    const key = String(change?.key ?? "");
+    return key.startsWith(VENTURE_MODIFIER_CHANGE_PREFIX);
+  });
 }
 
 function modifierAppliesToFacility(modifier, facility) {
@@ -102,6 +182,30 @@ function modifierAppliesToFacility(modifier, facility) {
   const target = modifier.facilityId;
   if (!target || (target === "*") || (target.toLowerCase() === "all")) return true;
   return [facility.id, facility.uuid, facility.name].includes(target);
+}
+
+function getModifierEffectSources(actor, facility) {
+  const sources = [];
+  if (actor?.effects) {
+    sources.push({
+      owner: actor,
+      ownerType: "actor",
+      effects: actor.effects
+    });
+  }
+  if (facility?.effects) {
+    sources.push({
+      owner: facility,
+      ownerType: "facility",
+      effects: facility.effects
+    });
+  }
+  return sources;
+}
+
+function isFacilityModifierActiveInstance(effect, ownerType) {
+  if (ownerType !== "facility") return true;
+  return effect.getFlag(MODULE_ID, "ventureModifierTemplate") === false;
 }
 
 function collectActiveVentureModifiers(actor, facility) {
@@ -114,61 +218,175 @@ function collectActiveVentureModifiers(actor, facility) {
     profitRollBonus: 0
   };
   const trackedEffects = [];
+  const debugEffects = [];
 
-  for (const effect of actor.effects ?? []) {
-    if (!effect || effect.disabled || effect.isSuppressed) continue;
-    const modifier = getEffectModifierData(effect);
-    if (!modifier.enabled) continue;
-    if (!modifierAppliesToFacility(modifier, facility)) continue;
-    if ((modifier.remainingTurns !== null) && (modifier.remainingTurns <= 0)) continue;
+  const sources = getModifierEffectSources(actor, facility);
+  for (const source of sources) {
+    for (const effect of source.effects ?? []) {
+      if (!effect) continue;
+      if (!isFacilityModifierActiveInstance(effect, source.ownerType)) {
+        debugEffects.push({
+          id: effect.id,
+          name: effect.name,
+          ownerType: source.ownerType,
+          ownerName: source.owner?.name ?? source.owner?.id ?? "",
+          ownerUuid: source.owner?.uuid ?? null,
+          skipped: true,
+          reason: "template"
+        });
+        continue;
+      }
+      const hasDefinition = effectHasVentureModifierDefinition(effect);
+      if (!hasDefinition) continue;
+      if (effect.disabled || effect.isSuppressed) {
+        debugEffects.push({
+          id: effect.id,
+          name: effect.name,
+          ownerType: source.ownerType,
+          ownerName: source.owner?.name ?? source.owner?.id ?? "",
+          ownerUuid: source.owner?.uuid ?? null,
+          disabled: Boolean(effect.disabled),
+          suppressed: Boolean(effect.isSuppressed),
+          skipped: true,
+          reason: effect.disabled ? "disabled" : "suppressed"
+        });
+        continue;
+      }
+      const modifier = getEffectModifierData(effect);
+      const appliesToFacility = modifierAppliesToFacility(modifier, facility);
+      const hasDuration = modifier.remainingTurns !== null;
+      const activeDuration = !hasDuration || (modifier.remainingTurns > 0);
+      if (!modifier.enabled || !appliesToFacility || !activeDuration) {
+        debugEffects.push({
+          id: effect.id,
+          name: effect.name,
+          ownerType: source.ownerType,
+          ownerName: source.owner?.name ?? source.owner?.id ?? "",
+          ownerUuid: source.owner?.uuid ?? null,
+          enabled: modifier.enabled,
+          appliesToFacility,
+          bastionDurationType: modifier.bastionDurationType,
+          remainingTurns: modifier.remainingTurns,
+          skipped: true
+        });
+        continue;
+      }
 
-    aggregate.profitDieStep += modifier.profitDieStep;
-    aggregate.lossDieStep += modifier.lossDieStep;
-    aggregate.profitRollBonus += modifier.profitRollBonus;
-    if (modifier.profitDieOverride) aggregate.profitDieOverride = modifier.profitDieOverride;
-    if (modifier.lossDieOverride) aggregate.lossDieOverride = modifier.lossDieOverride;
-    if (modifier.minProfitDie) {
-      aggregate.minProfitDie = aggregate.minProfitDie
-        ? maxDie(aggregate.minProfitDie, modifier.minProfitDie)
-        : modifier.minProfitDie;
-    }
+      aggregate.profitDieStep += modifier.profitDieStep;
+      aggregate.lossDieStep += modifier.lossDieStep;
+      aggregate.profitRollBonus += modifier.profitRollBonus;
+      if (modifier.profitDieOverride) aggregate.profitDieOverride = modifier.profitDieOverride;
+      if (modifier.lossDieOverride) aggregate.lossDieOverride = modifier.lossDieOverride;
+      if (modifier.minProfitDie) {
+        aggregate.minProfitDie = aggregate.minProfitDie
+          ? maxDie(aggregate.minProfitDie, modifier.minProfitDie)
+          : modifier.minProfitDie;
+      }
 
-    if (modifier.sourceHasFlag && modifier.consumePerTurn && (modifier.remainingTurns !== null)) {
-      trackedEffects.push({
-        effectId: modifier.effectId,
-        remainingTurns: modifier.remainingTurns
+      if (modifier.consumePerTurn && (modifier.remainingTurns !== null)) {
+        trackedEffects.push({
+          effectId: modifier.effectId,
+          remainingTurns: modifier.remainingTurns,
+          ownerType: source.ownerType,
+          ownerName: source.owner?.name ?? source.owner?.id ?? "",
+          ownerUuid: source.owner?.uuid ?? ""
+        });
+      }
+
+      debugEffects.push({
+        id: effect.id,
+        name: effect.name,
+        ownerType: source.ownerType,
+        ownerName: source.owner?.name ?? source.owner?.id ?? "",
+        ownerUuid: source.owner?.uuid ?? null,
+        enabled: modifier.enabled,
+        appliesToFacility,
+        remainingTurns: modifier.remainingTurns,
+        consumePerTurn: modifier.consumePerTurn,
+        applyToAllVentures: modifier.applyToAllVentures,
+        facilityId: modifier.facilityId,
+        bastionDurationType: modifier.bastionDurationType,
+        profitDieStep: modifier.profitDieStep,
+        profitDieOverride: modifier.profitDieOverride,
+        minProfitDie: modifier.minProfitDie,
+        lossDieStep: modifier.lossDieStep,
+        lossDieOverride: modifier.lossDieOverride,
+        profitRollBonus: modifier.profitRollBonus,
+        skipped: false
       });
     }
   }
 
-  return { aggregate, trackedEffects };
+  moduleLog("Venture modifiers: effect scan summary", {
+    actor: actor.name,
+    facility: facility.name,
+    actorEffects: actor.effects?.size ?? 0,
+    facilityEffects: facility.effects?.size ?? 0,
+    modifierEffectsFound: debugEffects.length,
+    modifierEffectsApplied: debugEffects.filter(effect => !effect.skipped).length
+  });
+
+  return { aggregate, trackedEffects, debugEffects };
 }
 
 function queueModifierDurationUsage(usageMap, trackedEffects) {
   for (const tracked of trackedEffects) {
-    if (!tracked?.effectId) continue;
-    if (usageMap.has(tracked.effectId)) continue;
-    usageMap.set(tracked.effectId, tracked.remainingTurns);
+    if (!tracked?.effectId || !tracked?.ownerUuid) continue;
+    const key = `${tracked.ownerUuid}::${tracked.effectId}`;
+    if (usageMap.has(key)) continue;
+    usageMap.set(key, tracked);
   }
 }
 
-async function decrementModifierDurations(actor, usageMap) {
+async function decrementModifierDurations(usageMap) {
   if (!usageMap?.size) return;
 
-  const updates = [];
-  for (const [effectId, remainingTurns] of usageMap.entries()) {
-    const currentRemaining = Math.max(parseEffectNumber(remainingTurns, 0), 0);
+  const byOwner = new Map();
+  for (const tracked of usageMap.values()) {
+    const currentRemaining = Math.max(parseEffectNumber(tracked.remainingTurns, 0), 0);
     if (currentRemaining <= 0) continue;
     const nextRemaining = Math.max(currentRemaining - 1, 0);
-    updates.push({
-      _id: effectId,
-      [VENTURE_MODIFIER_FLAG + ".remainingTurns"]: nextRemaining,
-      disabled: nextRemaining <= 0
+    const ownerKey = tracked.ownerUuid;
+    const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], debug: [] };
+    ownerEntry.debug.push({
+      id: tracked.effectId,
+      ownerType: tracked.ownerType,
+      ownerName: tracked.ownerName,
+      remainingTurnsBefore: currentRemaining,
+      remainingTurnsAfter: nextRemaining,
+      action: nextRemaining <= 0 ? "delete" : "update"
     });
+    if (nextRemaining <= 0) {
+      ownerEntry.deletes.push(tracked.effectId);
+    } else {
+      ownerEntry.updates.push({
+        _id: tracked.effectId,
+        [VENTURE_MODIFIER_FLAG + ".remainingTurns"]: nextRemaining
+      });
+    }
+    byOwner.set(ownerKey, ownerEntry);
   }
 
-  if (!updates.length) return;
-  await actor.updateEmbeddedDocuments("ActiveEffect", updates);
+  if (!byOwner.size) return;
+
+  for (const [ownerUuid, entry] of byOwner.entries()) {
+    const owner = await fromUuid(ownerUuid);
+    if (!owner?.updateEmbeddedDocuments) {
+      moduleLog("Venture modifiers: unable to decrement durations for owner", { ownerUuid, entry });
+      continue;
+    }
+    moduleLog("Venture modifiers: decrement durations", {
+      owner: owner.name ?? ownerUuid,
+      ownerUuid,
+      effects: entry.debug
+    });
+    if (entry.updates.length) {
+      await owner.updateEmbeddedDocuments("ActiveEffect", entry.updates);
+    }
+    if (entry.deletes.length && owner.deleteEmbeddedDocuments) {
+      await owner.deleteEmbeddedDocuments("ActiveEffect", entry.deletes);
+    }
+  }
 }
 
 function isFacilityEligibleForVenture(facility, config, state) {
@@ -205,6 +423,15 @@ function getBoonPurchaseWhenLabel(mode) {
 
 function emitSocket(payload) {
   game.socket?.emit(SOCKET_NAMESPACE, payload);
+}
+
+function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
+  const key = String(boonKey ?? "").trim();
+  if (key) {
+    const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
+    return Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+  }
+  return Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
 }
 
 function getPreferredCoverageUser(actor) {
@@ -368,8 +595,8 @@ async function maybeCoverCharacterDeficit({
   return result;
 }
 
-async function rollDie(formula) {
-  return Roll.create(formula).evaluate({ allowInteractive: false });
+async function rollDie(formula, actor, facilityName, rollLabel) {
+  return requestUserRoll({ formula, actor, facilityName, rollLabel });
 }
 
 async function processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage) {
@@ -384,7 +611,19 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
 
   const effectModifiers = collectActiveVentureModifiers(actor, facility);
   queueModifierDurationUsage(modifierDurationUsage, effectModifiers.trackedEffects);
+  moduleLog("Venture modifiers: collected", {
+    actor: actor.name,
+    facility: facility.name,
+    aggregate: effectModifiers.aggregate,
+    effects: effectModifiers.debugEffects
+  });
 
+  const stateBefore = {
+    currentProfitDie: state.currentProfitDie,
+    streak: state.streak,
+    treasury: state.treasury,
+    failed: state.failed
+  };
   let rolledProfitDie = shiftDie(state.currentProfitDie, effectModifiers.aggregate.profitDieStep);
   if (effectModifiers.aggregate.profitDieOverride) {
     rolledProfitDie = effectModifiers.aggregate.profitDieOverride;
@@ -396,8 +635,18 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     lossDie = effectModifiers.aggregate.lossDieOverride;
   }
 
-  const profitRoll = await rollDie(rolledProfitDie);
-  const lossRoll = await rollDie(lossDie);
+  const profitRoll = await rollDie(
+    rolledProfitDie,
+    actor,
+    config.ventureName || facility.name,
+    game.i18n.localize("INDYVENTURES.RollPrompt.Profit")
+  );
+  const lossRoll = await rollDie(
+    lossDie,
+    actor,
+    config.ventureName || facility.name,
+    game.i18n.localize("INDYVENTURES.RollPrompt.Loss")
+  );
 
   const rawProfitRollTotal = Number(profitRoll.total);
   const profitRollBonus = effectModifiers.aggregate.profitRollBonus;
@@ -474,7 +723,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
 
   const boons = parseBoonsFromConfig(config).map((boon, index) => {
     const reward = resolveRewardDisplayData(boon);
-    const purchasedThisTurn = Math.max(Number(state.boonPurchases?.[String(index)] ?? 0) || 0, 0);
+    const boonKey = buildBoonKey(boon);
+    const purchasedThisTurn = getBoonPurchasesThisTurn(state, index, boonKey);
     const perTurnLimit = parseBoonPerTurnLimit(boon.perTurnLimit, 1);
     const purchaseWhen = parseBoonPurchaseWhen(boon.purchaseWhen, "default");
     const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
@@ -482,6 +732,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     return {
       ...boon,
       index,
+      key: boonKey,
       perTurnLimit,
       purchaseWhen,
       purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
@@ -494,6 +745,68 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       rewardName: reward.rewardName,
       rewardImg: reward.rewardImg
     };
+  });
+
+  const modifierEffects = effectModifiers.debugEffects
+    .filter(effect => !effect.skipped)
+    .map(effect => {
+      const hasDuration = (effect.remainingTurns !== null) && (effect.remainingTurns !== undefined);
+      const remainingBefore = hasDuration ? Math.max(parseEffectNumber(effect.remainingTurns, 0), 0) : null;
+      const remainingAfter = (hasDuration && effect.consumePerTurn)
+        ? Math.max(remainingBefore - 1, 0)
+        : remainingBefore;
+      return {
+        name: effect.name,
+        summary: summarizeModifierEffect(effect),
+        hasDuration,
+        remainingBefore,
+        remainingAfter,
+        consumePerTurn: Boolean(effect.consumePerTurn)
+      };
+    });
+
+  moduleLog("Venture turn resolved", {
+    actor: actor.name,
+    facility: facility.name,
+    config: {
+      ventureName: config.ventureName,
+      baseProfitDie: config.profitDie,
+      baseLossDie: config.lossDie,
+      lossModifier: config.lossModifier,
+      autoCoverLoss: config.autoCoverLoss
+    },
+    stateBefore,
+    rolls: {
+      profitDieRolled: rolledProfitDie,
+      lossDieRolled: lossDie,
+      rawProfitRollTotal,
+      profitRollBonus,
+      profitRollTotal,
+      lossRollTotal: Number(lossRoll.total),
+      income,
+      outgoings,
+      net
+    },
+    coverage: {
+      deficit,
+      treasuryCovered,
+      characterCovered,
+      uncoveredDeficit,
+      coveredDeficit,
+      autoCovered,
+      manualCovered,
+      promptDeclined,
+      promptTimedOut,
+      promptUserName,
+      insufficientFunds
+    },
+    stateAfter: {
+      currentProfitDie: state.currentProfitDie,
+      streak: state.streak,
+      treasury: state.treasury,
+      failed: state.failed
+    },
+    modifierEffects
   });
 
   await updateFacilityVenture(facility, config, state);
@@ -530,7 +843,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     grew,
     degraded,
     failed,
-    boons
+    boons,
+    modifierEffects
   };
 }
 
@@ -577,6 +891,12 @@ export async function processActorVenturesFromBastionMessage(message) {
   };
 
   const facilities = actor.itemTypes?.facility ?? [];
+  moduleLog("Bastion venture processing start", {
+    actor: actor.name,
+    actorUuid: actor.uuid,
+    turnId: message.uuid,
+    facilities: facilities.length
+  });
   const results = [];
   const turnId = message.uuid;
   const modifierDurationUsage = new Map();
@@ -591,7 +911,12 @@ export async function processActorVenturesFromBastionMessage(message) {
     await actor.update({ "system.currency.gp": wallet.gp });
   }
 
-  await decrementModifierDurations(actor, modifierDurationUsage);
+  await decrementModifierDurations(modifierDurationUsage);
+  moduleLog("Bastion venture processing complete", {
+    actor: actor.name,
+    facilitiesProcessed: results.length,
+    gpAfter: wallet.gp
+  });
 
   if (game.settings.get(MODULE_ID, SETTINGS.postChatSummary)) {
     await postVentureSummary(actor, results, message);

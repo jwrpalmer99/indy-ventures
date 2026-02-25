@@ -18,7 +18,13 @@
           <input type="text" class="boon-name" placeholder="{{ localize "INDYVENTURES.BoonEditor.Name" }}" value="{{ name }}">
           <input type="number" class="boon-cost" min="0" step="1" placeholder="{{ localize "INDYVENTURES.BoonEditor.Cost" }}" value="{{ cost }}">
           <input type="text" class="boon-description" placeholder="{{ localize "INDYVENTURES.BoonEditor.Description" }}" value="{{ description }}">
-          <input type="text" class="boon-reward" placeholder="{{ localize "INDYVENTURES.BoonEditor.RewardPlaceholder" }}" value="{{ rewardUuid }}">
+          <div class="boon-reward-cell">
+            <input type="text" class="boon-reward" placeholder="{{ localize "INDYVENTURES.BoonEditor.RewardPlaceholder" }}" value="{{ rewardUuid }}">
+            <button type="button"
+                    class="boon-build-effect icon fa-solid fa-wand-magic-sparkles"
+                    data-action="buildBoonModifierReward"
+                    aria-label="{{ localize "INDYVENTURES.BoonEditor.ModifierBuilderOpen" }}"></button>
+          </div>
           <input type="text" class="boon-limit" placeholder="{{ localize "INDYVENTURES.BoonEditor.LimitPlaceholder" }}" value="{{ perTurnLimitDisplay }}">
           <select class="boon-purchase-when">
             {{ selectOptions ../purchaseWhenOptions selected=purchaseWhen localize=false }}

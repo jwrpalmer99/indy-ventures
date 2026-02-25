@@ -6,14 +6,207 @@ import {
   updateFacilityVenture
 } from "./config.js";
 import {
+  buildBoonKey,
   boonPurchaseWhenAllows,
   getActorGp,
   parseBoonPerTurnLimit,
   parseBoonPurchaseWhen
 } from "./utils.js";
+import { moduleLog } from "./logger.js";
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
+}
+
+function resolveMessageHtmlRoot(html) {
+  if (html instanceof HTMLElement) return html;
+  if (Array.isArray(html) && (html[0] instanceof HTMLElement)) return html[0];
+  if (html?.jquery && (html[0] instanceof HTMLElement)) return html[0];
+  return null;
+}
+
+function parseModifierNumber(value, fallback = 0) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseModifierBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  return Boolean(value);
+}
+
+function getVentureModifierFromEffect(effect) {
+  const rawFlagData = effect.getFlag(MODULE_ID, "ventureModifier");
+  const fromFlags = (rawFlagData && (typeof rawFlagData === "object")) ? rawFlagData : {};
+  const fromChanges = {};
+  for (const change of effect.changes ?? []) {
+    const key = String(change?.key ?? "");
+    if (!key.startsWith(`flags.${MODULE_ID}.ventureModifier.`)) continue;
+    const subKey = key.slice(`flags.${MODULE_ID}.ventureModifier.`.length);
+    foundry.utils.setProperty(fromChanges, subKey, change?.value);
+  }
+  const raw = foundry.utils.mergeObject(fromChanges, fromFlags, {
+    inplace: false,
+    recursive: true,
+    insertKeys: true
+  });
+  if (!raw || (typeof raw !== "object") || (Object.keys(raw).length === 0)) return null;
+  const remainingTurnsRaw = raw.remainingTurns;
+  let remainingTurns = ((remainingTurnsRaw === undefined) || (remainingTurnsRaw === null) || (remainingTurnsRaw === ""))
+    ? null
+    : Math.max(parseModifierNumber(remainingTurnsRaw, 0), 0);
+  if ((String(raw.bastionDurationType ?? "").trim() === "nextBastionTurn") && (remainingTurns === null)) {
+    remainingTurns = 1;
+  }
+  return {
+    applyToAllVentures: parseModifierBoolean(raw.applyToAllVentures, false),
+    facilityId: String(raw.facilityId ?? raw.facilityUuid ?? "").trim(),
+    profitDieStep: parseModifierNumber(raw.profitDieStep, 0),
+    profitDieOverride: String(raw.profitDieOverride ?? "").trim(),
+    minProfitDie: String(raw.minProfitDie ?? "").trim(),
+    lossDieStep: parseModifierNumber(raw.lossDieStep, 0),
+    lossDieOverride: String(raw.lossDieOverride ?? "").trim(),
+    profitRollBonus: parseModifierNumber(raw.profitRollBonus, 0),
+    remainingTurns,
+    consumePerTurn: parseModifierBoolean(raw.consumePerTurn, true),
+    bastionDurationType: String(raw.bastionDurationType ?? "").trim()
+  };
+}
+
+function modifierAppliesToFacility(modifier, facility) {
+  if (modifier.applyToAllVentures) return true;
+  const target = modifier.facilityId;
+  if (!target || (target === "*") || (target.toLowerCase() === "all")) return true;
+  return [facility.id, facility.uuid, facility.name].includes(target);
+}
+
+function summarizeModifier(modifier) {
+  const parts = [];
+  if (modifier.profitDieStep) parts.push(`profit die step ${modifier.profitDieStep > 0 ? "+" : ""}${modifier.profitDieStep}`);
+  if (modifier.profitDieOverride) parts.push(`profit die ${modifier.profitDieOverride}`);
+  if (modifier.minProfitDie) parts.push(`minimum profit die ${modifier.minProfitDie}`);
+  if (modifier.lossDieStep) parts.push(`loss die step ${modifier.lossDieStep > 0 ? "+" : ""}${modifier.lossDieStep}`);
+  if (modifier.lossDieOverride) parts.push(`loss die ${modifier.lossDieOverride}`);
+  if (modifier.profitRollBonus) parts.push(`profit bonus ${modifier.profitRollBonus > 0 ? "+" : ""}${modifier.profitRollBonus}`);
+  if (modifier.bastionDurationType === "nextBastionTurn") {
+    parts.push(game.i18n.localize("INDYVENTURES.EffectSummary.BastionDurationNextTurn"));
+  }
+  return parts.join(", ");
+}
+
+function collectBastionCardModifiers(actor) {
+  const facilities = actor.itemTypes?.facility ?? [];
+  const rows = [];
+  for (const facility of facilities) {
+    const config = getFacilityConfig(facility);
+    if (!config.enabled) continue;
+    const sources = [
+      { ownerType: "facility", effects: facility.effects ?? [] },
+      { ownerType: "actor", effects: actor.effects ?? [] }
+    ];
+    for (const source of sources) {
+      for (const effect of source.effects) {
+        if (!effect || effect.disabled || effect.isSuppressed) continue;
+        if ((source.ownerType === "facility") && (effect.getFlag(MODULE_ID, "ventureModifierTemplate") === true)) continue;
+        const modifier = getVentureModifierFromEffect(effect);
+        if (!modifier) continue;
+        if (!modifierAppliesToFacility(modifier, facility)) continue;
+        if ((modifier.remainingTurns !== null) && (modifier.remainingTurns <= 0)) continue;
+        rows.push({
+          facilityName: config.ventureName || facility.name,
+          effectName: effect.name,
+          summary: summarizeModifier(modifier),
+          remainingTurns: modifier.remainingTurns
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+function appendBastionModifierSection(message, html) {
+  const bastionData = message.getFlag("dnd5e", "bastion");
+  if (!bastionData || !Array.isArray(bastionData.orders)) return;
+
+  const actor = message.getAssociatedActor?.() ?? game.actors.get(message.speaker?.actor);
+  if (!actor || actor.type !== "character") return;
+
+  const rows = collectBastionCardModifiers(actor);
+  if (!rows.length) return;
+
+  const htmlRoot = resolveMessageHtmlRoot(html);
+  if (!htmlRoot) return;
+  const root = htmlRoot.querySelector(".message-content") ?? htmlRoot;
+  if (!root || root.querySelector(".indy-bastion-modifiers")) return;
+
+  const section = document.createElement("section");
+  section.classList.add("indy-bastion-modifiers");
+  const title = document.createElement("h4");
+  title.textContent = game.i18n.localize("INDYVENTURES.Chat.BastionEffectsTitle");
+  section.append(title);
+
+  for (const row of rows) {
+    const line = document.createElement("p");
+    line.classList.add("hint");
+    const detail = row.summary || game.i18n.localize("INDYVENTURES.EffectSummary.NoChanges");
+    const turns = (row.remainingTurns === null)
+      ? game.i18n.localize("INDYVENTURES.Chat.BastionEffectsNoTurnLimit")
+      : game.i18n.format("INDYVENTURES.Chat.BastionEffectsTurnsRemaining", { turns: row.remainingTurns });
+    line.textContent = `${row.facilityName} - ${row.effectName}: ${detail} (${turns})`;
+    section.append(line);
+  }
+
+  root.append(section);
+}
+
+async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
+  const title = game.i18n.localize("INDYVENTURES.RollPrompt.Title");
+  const content = game.i18n.format("INDYVENTURES.RollPrompt.Content", {
+    rollLabel,
+    formula,
+    facility: facilityName
+  });
+  const rollButton = game.i18n.localize("INDYVENTURES.RollPrompt.Roll");
+  const flavor = game.i18n.format("INDYVENTURES.RollPrompt.Flavor", {
+    rollLabel,
+    facility: facilityName
+  });
+
+  const doRoll = async () => {
+    const roll = await Roll.create(formula).evaluate({ allowInteractive: true });
+    await roll.toMessage({
+      speaker: ChatMessage.getSpeaker?.({ actor }) ?? ChatMessage.implementation.getSpeaker({ actor }),
+      flavor
+    });
+    return roll;
+  };
+
+  if (foundry.applications?.api?.DialogV2?.prompt) {
+    return foundry.applications.api.DialogV2.prompt({
+      window: { title, resizable: true },
+      content,
+      rejectClose: true,
+      ok: {
+        label: rollButton,
+        callback: async () => doRoll()
+      }
+    });
+  }
+
+  if (foundry.applications?.api?.Dialog?.prompt) {
+    return foundry.applications.api.Dialog.prompt({
+      window: { title, resizable: true },
+      content,
+      ok: {
+        label: rollButton,
+        callback: async () => doRoll()
+      }
+    });
+  }
+
+  return doRoll();
 }
 
 async function rerenderSummaryMessage(message, actorUuid, results) {
@@ -54,21 +247,47 @@ function getBoonPurchaseWhenLabel(mode) {
   return game.i18n.localize("INDYVENTURES.BoonPurchaseWhen.Default");
 }
 
-function getBoonPurchasesThisTurn(state, boonIndex) {
+function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
+  const key = String(boonKey ?? "").trim();
+  if (key) {
+    const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
+    return Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+  }
   return Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
+}
+
+function resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey = "") {
+  let index = requestedIndex;
+  let boon = boons[index];
+  const key = String(requestedKey ?? "").trim();
+  if (!key) return { boon, index, matchedByKey: false };
+
+  const currentKey = boon ? buildBoonKey(boon) : "";
+  if (boon && (currentKey === key)) return { boon, index, matchedByKey: false };
+
+  const matchedIndex = boons.findIndex(candidate => buildBoonKey(candidate) === key);
+  if (matchedIndex >= 0) {
+    index = matchedIndex;
+    boon = boons[index];
+    return { boon, index, matchedByKey: true };
+  }
+
+  return { boon: null, index: requestedIndex, matchedByKey: false };
 }
 
 function withBoonAvailability(boon, state, boonIndex, turnNet = null) {
   const reward = resolveRewardDisplayFromBoon(boon);
+  const boonKey = String(boon?.key ?? buildBoonKey(boon));
   const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
   const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
-  const purchasedThisTurn = getBoonPurchasesThisTurn(state, boonIndex);
+  const purchasedThisTurn = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
   const affordable = state.treasury >= boon.cost;
   const underTurnLimit = (perTurnLimit === null) || (purchasedThisTurn < perTurnLimit);
   const net = Number(turnNet ?? state?.lastTurnNet ?? 0) || 0;
   const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
   return {
     ...boon,
+    key: boonKey,
     perTurnLimit,
     purchaseWhen,
     purchaseWhenAllowed,
@@ -89,7 +308,38 @@ function cloneDocumentSource(document) {
   return source;
 }
 
-async function prepareActiveEffectRewardData(effectData, facility) {
+function buildModifierChangeRows(modifier) {
+  const mode = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
+  const priority = 20;
+  const changeKeys = new Set([
+    "enabled",
+    "applyToAllVentures",
+    "facilityId",
+    "profitDieStep",
+    "profitDieOverride",
+    "minProfitDie",
+    "lossDieStep",
+    "lossDieOverride",
+    "profitRollBonus",
+    "durationFormula",
+    "consumePerTurn",
+    "bastionDurationType"
+  ]);
+  const entries = Object.entries(modifier ?? {}).filter(([key, value]) => {
+    if (!changeKeys.has(key)) return false;
+    if (value === undefined || value === null) return false;
+    if (typeof value === "string") return value.trim() !== "";
+    return true;
+  });
+  return entries.map(([key, value]) => ({
+    key: `flags.${MODULE_ID}.ventureModifier.${key}`,
+    mode,
+    value: String(value),
+    priority
+  }));
+}
+
+async function prepareActiveEffectRewardData(effectData, facility, actor) {
   const modifierPath = `flags.${MODULE_ID}.ventureModifier`;
   if (!foundry.utils.hasProperty(effectData, modifierPath)) return effectData;
 
@@ -100,6 +350,13 @@ async function prepareActiveEffectRewardData(effectData, facility) {
     modifier.facilityId = facility.id;
   }
 
+  const bastionDurationType = String(modifier.bastionDurationType ?? "").trim();
+  if (bastionDurationType === "nextBastionTurn") {
+    modifier.remainingTurns = 1;
+    modifier.consumePerTurn = true;
+    delete modifier.durationFormula;
+  }
+
   const hasRemainingTurns = (modifier.remainingTurns !== undefined)
     && (modifier.remainingTurns !== null)
     && (String(modifier.remainingTurns).trim() !== "");
@@ -107,7 +364,12 @@ async function prepareActiveEffectRewardData(effectData, facility) {
   if (!hasRemainingTurns && durationFormula) {
     let durationRoll;
     try {
-      durationRoll = await Roll.create(durationFormula).evaluate({ allowInteractive: false });
+      durationRoll = await requestUserRoll({
+        formula: durationFormula,
+        actor,
+        facilityName: facility.name,
+        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration")
+      });
     } catch (error) {
       throw new Error(game.i18n.format("INDYVENTURES.Errors.BoonDurationFormulaInvalid", {
         formula: durationFormula
@@ -116,9 +378,27 @@ async function prepareActiveEffectRewardData(effectData, facility) {
 
     const turns = Math.max(Number.parseInt(durationRoll.total, 10) || 0, 1);
     modifier.remainingTurns = turns;
+    moduleLog("Boon reward effect: rolled duration", {
+      facility: facility.name,
+      formula: durationFormula,
+      total: durationRoll.total,
+      appliedTurns: turns
+    });
   }
 
   foundry.utils.setProperty(effectData, modifierPath, modifier);
+  foundry.utils.setProperty(effectData, `flags.${MODULE_ID}.ventureModifierTemplate`, false);
+  effectData.disabled = false;
+  const existingChanges = Array.isArray(effectData.changes) ? effectData.changes : [];
+  const nonModifierChanges = existingChanges.filter(change => {
+    const key = String(change?.key ?? "");
+    return !key.startsWith(`flags.${MODULE_ID}.ventureModifier.`);
+  });
+  effectData.changes = [...nonModifierChanges, ...buildModifierChangeRows(modifier)];
+  moduleLog("Boon reward effect: prepared venture modifier", {
+    facility: facility.name,
+    modifier
+  });
   return effectData;
 }
 
@@ -134,13 +414,36 @@ async function grantBoonReward(actor, facility, boon) {
 
   if (rewardDoc.documentName === "Item") {
     await actor.createEmbeddedDocuments("Item", [cloneDocumentSource(rewardDoc)]);
+    moduleLog("Boon reward granted: item", {
+      actor: actor.name,
+      facility: facility.name,
+      rewardUuid: boon.rewardUuid,
+      reward: rewardDoc.name
+    });
     return rewardDoc.name;
   }
 
   if (rewardDoc.documentName === "ActiveEffect") {
-    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility);
-    await actor.createEmbeddedDocuments("ActiveEffect", [effectData]);
-    return rewardDoc.name;
+    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility, actor);
+    const hasVentureModifier = foundry.utils.hasProperty(effectData, `flags.${MODULE_ID}.ventureModifier`);
+    const targetDocument = hasVentureModifier && facility?.createEmbeddedDocuments
+      ? facility
+      : actor;
+    const created = await targetDocument.createEmbeddedDocuments("ActiveEffect", [effectData]);
+    const createdEffect = created?.[0];
+    moduleLog("Boon reward granted: active effect", {
+      actor: actor.name,
+      facility: facility.name,
+      target: targetDocument?.documentName ?? "Actor",
+      rewardUuid: boon.rewardUuid,
+      sourceEffect: rewardDoc.name,
+      createdEffectId: createdEffect?.id ?? null,
+      createdEffectName: createdEffect?.name ?? rewardDoc.name,
+      ventureModifier: createdEffect?.getFlag(MODULE_ID, "ventureModifier")
+        ?? foundry.utils.getProperty(effectData, `flags.${MODULE_ID}.ventureModifier`)
+        ?? null
+    });
+    return createdEffect?.name ?? rewardDoc.name;
   }
 
   throw new Error(game.i18n.format("INDYVENTURES.Errors.BoonRewardUnsupported", {
@@ -206,14 +509,35 @@ async function onPurchaseBoon(message, button) {
     return;
   }
 
-  const boonIndex = Number(button.dataset.boonIndex);
-  if (!Number.isFinite(boonIndex)) return;
+  const requestedIndex = Number(button.dataset.boonIndex);
+  if (!Number.isFinite(requestedIndex)) return;
+  const requestedKey = String(button.dataset.boonKey ?? "").trim();
 
   const config = getFacilityConfig(facility);
   const state = getFacilityState(facility, config);
   const boons = parseBoonsFromConfig(config);
-  const boon = boons[boonIndex];
-  if (!boon) return;
+  const resolved = resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey);
+  const boonIndex = resolved.index;
+  const boon = resolved.boon;
+  if (!boon) {
+    moduleLog("Boon purchase blocked: boon entry no longer matches chat summary", {
+      actor: actor.name,
+      facility: facility.name,
+      requestedIndex,
+      requestedKey
+    });
+    ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
+    return;
+  }
+  if (resolved.matchedByKey) {
+    moduleLog("Boon purchase: resolved index mismatch by key", {
+      actor: actor.name,
+      facility: facility.name,
+      requestedIndex,
+      resolvedIndex: boonIndex,
+      requestedKey
+    });
+  }
   const actorUuid = message.getFlag(MODULE_ID, "actorUuid");
   const results = foundry.utils.deepClone(message.getFlag(MODULE_ID, "results")) ?? [];
   const summary = results.find(r => r.facilityUuid === facility.uuid);
@@ -232,6 +556,21 @@ async function onPurchaseBoon(message, button) {
     const key = purchaseState.blockedByWindow
       ? "INDYVENTURES.Errors.BoonPurchaseWindowBlocked"
       : (purchaseState.affordable ? "INDYVENTURES.Errors.BoonTurnLimitReached" : "INDYVENTURES.Errors.NotEnoughTreasury");
+    moduleLog("Boon purchase blocked", {
+      actor: actor.name,
+      facility: facility.name,
+      boon: boon.name,
+      boonIndex,
+      requestedIndex,
+      requestedKey,
+      stateTurnId: state.turnId,
+      messageTurnId: turnId,
+      affordable: purchaseState.affordable,
+      purchasedThisTurn: purchaseState.purchasedThisTurn,
+      perTurnLimit: purchaseState.perTurnLimit,
+      purchaseWhen: purchaseState.purchaseWhen,
+      purchaseWhenAllowed: purchaseState.purchaseWhenAllowed
+    });
     ui.notifications.warn(game.i18n.format(key, {
       boon: boon.name,
       limit: purchaseState.perTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"),
@@ -241,15 +580,27 @@ async function onPurchaseBoon(message, button) {
     return;
   }
 
-  const boonKey = String(boonIndex);
-  const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex);
+  const boonKey = String(purchaseState.key ?? buildBoonKey(boon));
+  const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
   const previousTreasury = state.treasury;
   state.treasury -= boon.cost;
   state.boonPurchases = {
     ...(state.boonPurchases ?? {}),
-    [boonKey]: previousPurchaseCount + 1
+    [boonKey]: previousPurchaseCount + 1,
+    [String(boonIndex)]: previousPurchaseCount + 1
   };
   await updateFacilityVenture(facility, config, state);
+  moduleLog("Boon purchase: funds reserved", {
+    actor: actor.name,
+    facility: facility.name,
+    boon: boon.name,
+    cost: boon.cost,
+    treasuryBefore: previousTreasury,
+    treasuryAfter: state.treasury,
+    purchasedThisTurnBefore: previousPurchaseCount,
+    purchasedThisTurnAfter: state.boonPurchases[boonKey],
+    rewardUuid: boon.rewardUuid || null
+  });
 
   let rewardName = null;
   if (boon.rewardUuid) {
@@ -259,8 +610,10 @@ async function onPurchaseBoon(message, button) {
       state.treasury = previousTreasury;
       if (previousPurchaseCount > 0) {
         state.boonPurchases[boonKey] = previousPurchaseCount;
+        state.boonPurchases[String(boonIndex)] = previousPurchaseCount;
       } else {
         delete state.boonPurchases[boonKey];
+        delete state.boonPurchases[String(boonIndex)];
       }
       await updateFacilityVenture(facility, config, state);
       ui.notifications.error(error.message);
@@ -336,10 +689,14 @@ async function onClaimTreasury(message, button) {
 
 export function registerChatHooks() {
   Hooks.on("dnd5e.renderChatMessage", (message, html) => {
+    const htmlRoot = resolveMessageHtmlRoot(html);
+    if (!htmlRoot) return;
+    appendBastionModifierSection(message, htmlRoot);
+
     const type = message.getFlag(MODULE_ID, "type");
     if (type !== "ventureSummary") return;
 
-    html.addEventListener("click", event => {
+    htmlRoot.addEventListener("click", event => {
       const link = event.target.closest(".content-link[data-uuid]");
       if (link) {
         event.preventDefault();

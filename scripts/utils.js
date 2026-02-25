@@ -146,6 +146,17 @@ export function parseBoonsText(boonsText = "") {
     .filter(Boolean);
 }
 
+export function buildBoonKey(boon = {}) {
+  const name = String(boon?.name ?? "").trim();
+  const cost = Number.parseInt(boon?.cost, 10) || 0;
+  const description = String(boon?.description ?? "").trim();
+  const rewardUuid = String(boon?.rewardUuid ?? "").trim();
+  const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
+  const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
+  const limitText = perTurnLimit === null ? "unlimited" : String(perTurnLimit);
+  return [name, cost, description, rewardUuid, limitText, purchaseWhen].join("::");
+}
+
 export function getActorGp(actor) {
   return Number(actor?.system?.currency?.gp ?? 0) || 0;
 }

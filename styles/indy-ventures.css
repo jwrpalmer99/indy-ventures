@@ -167,6 +167,12 @@
   margin: 0.3rem 0 0.4rem;
 }
 
+.indy-ventures-card .indy-venture-modifiers {
+  margin: 0.35rem 0 0.45rem;
+  padding-left: 0.35rem;
+  border-left: 2px solid rgba(0, 0, 0, 0.14);
+}
+
 .indy-ventures-card .indy-venture-boons button:disabled {
   opacity: 0.6;
 }
@@ -182,6 +188,21 @@
   height: 1rem;
   object-fit: cover;
   border-radius: 2px;
+}
+
+.indy-bastion-modifiers {
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.indy-bastion-modifiers h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+}
+
+.indy-bastion-modifiers p {
+  margin: 0.05rem 0;
 }
 
 .indy-boon-editor-app {
@@ -224,6 +245,18 @@
   width: 100%;
 }
 
+.indy-boon-editor .indy-boon-row .boon-reward-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.indy-boon-editor .indy-boon-row .boon-build-effect {
+  height: 34px;
+  min-width: 34px;
+}
+
 .indy-boon-editor .indy-boon-row .boon-remove {
   height: 34px;
   min-width: 34px;
@@ -244,6 +277,73 @@
   gap: 0.5rem;
 }
 
+.indy-boon-modifier-scroll {
+  max-height: min(70vh, 680px);
+  overflow-y: auto;
+  padding-right: 0.3rem;
+}
+
+.indy-boon-modifier-form {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.indy-boon-modifier-form .hint {
+  margin: 0;
+}
+
+.indy-boon-modifier-form .form-group {
+  display: grid;
+  grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+}
+
+.indy-boon-modifier-form .form-group > label {
+  margin: 0;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.indy-boon-modifier-form .form-group .form-fields {
+  margin: 0;
+  width: 100%;
+}
+
+.indy-boon-modifier-form .form-group .form-fields :is(input, select) {
+  width: 100%;
+}
+
+.indy-boon-modifier-form .form-group .form-fields > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-weight: 400;
+}
+
+.indy-boon-modifier-form .form-group .form-fields input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.indy-venture-modifier-summary {
+  margin-bottom: 0.55rem;
+}
+
+.indy-venture-modifier-summary .form-fields {
+  width: 100%;
+}
+
+.indy-venture-modifier-summary .indy-venture-modifier-summary-text {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  font-family: monospace;
+  line-height: 1.25;
+}
+
 @media (max-width: 920px) {
   .indy-ventures-sheet .form-fields.indy-boons-fields {
     width: 100%;
@@ -259,5 +359,13 @@
 
   .indy-boon-editor .indy-boon-row {
     grid-template-columns: 1fr;
+  }
+
+}
+
+@media (max-width: 700px) {
+  .indy-boon-modifier-form .form-group {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
