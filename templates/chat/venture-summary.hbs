@@ -1,11 +1,12 @@
 <div class="chat-card indy-ventures-card">
-  <header class="card-header">
-    <h3>{{ localize "INDYVENTURES.Chat.Title" actor=actor.name }}</h3>
-  </header>
+  <details class="indy-ventures-results" open>
+    <summary class="card-header indy-ventures-results-toggle">
+      <h3>{{ localize "INDYVENTURES.Chat.Title" actor=actor.name }}</h3>
+    </summary>
 
-  <section class="card-content">
-    {{#each results}}
-      <article class="indy-venture-row {{#if failed}}failed{{/if}}">
+    <section class="card-content">
+      {{#each results}}
+        <article class="indy-venture-row {{#if failed}}failed{{/if}}">
         <header>
           <h4>{{ ventureName }}</h4>
           <span>{{ facilityName }}</span>
@@ -158,7 +159,8 @@
             {{/each}}
           </div>
         {{/if}}
-      </article>
-    {{/each}}
-  </section>
+        </article>
+      {{/each}}
+    </section>
+  </details>
 </div>

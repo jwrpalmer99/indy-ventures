@@ -207,6 +207,32 @@
   font-size: 1rem;
 }
 
+.indy-ventures-card .indy-ventures-results-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.indy-ventures-card .indy-ventures-results-toggle::marker,
+.indy-ventures-card .indy-ventures-results-toggle::-webkit-details-marker {
+  display: none;
+  content: "";
+}
+
+.indy-ventures-card .indy-ventures-results-toggle::before {
+  content: "\25B6";
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.85;
+  transition: transform 120ms ease;
+}
+
+.indy-ventures-card .indy-ventures-results[open] > .indy-ventures-results-toggle::before {
+  transform: rotate(90deg);
+}
+
 .indy-ventures-card .indy-venture-row {
   border-top: 1px solid rgba(0, 0, 0, 0.1);
   margin-top: 0.5rem;
