@@ -113,6 +113,8 @@ Each enabled venture on the actor is processed when a bastion turn is detected:
 5. Handle growth/degradation/failure.
 6. Decrement relevant effect durations.
 
+When the GM is processing the bastion turn, roll prompts are delegated to a connected actor owner when available; otherwise the GM is prompted.
+
 Growth/degradation specifics:
 
 - Break-even (`net = 0`) does **not** increase success streak.

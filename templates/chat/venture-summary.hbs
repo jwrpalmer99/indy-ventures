@@ -21,17 +21,16 @@
         {{#if profitRollBonus}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.ProfitRollBonus" bonus=profitRollBonus raw=rawProfitRollTotal total=profitRollTotal }}</p>
         {{/if}}
-        <p class="hint indy-profit-die-line {{ profitDieChangeClass }}">
-          {{#if grew}}
+        {{#if grew}}
+          <p class="hint indy-profit-die-line {{ profitDieChangeClass }}">
             {{ localize "INDYVENTURES.Chat.ProfitDieIncreased" from=previousProfitDie to=nextProfitDie }}
-          {{else}}
-            {{#if degraded}}
-              {{ localize "INDYVENTURES.Chat.ProfitDieDecreased" from=previousProfitDie to=nextProfitDie }}
-            {{else}}
-              {{ localize "INDYVENTURES.Chat.NextProfitDie" die=nextProfitDie }}
-            {{/if}}
-          {{/if}}
-        </p>
+          </p>
+        {{/if}}
+        {{#if degraded}}
+          <p class="hint indy-profit-die-line {{ profitDieChangeClass }}">
+            {{ localize "INDYVENTURES.Chat.ProfitDieDecreased" from=previousProfitDie to=nextProfitDie }}
+          </p>
+        {{/if}}
         <p class="indy-net-line">
           <span>{{ localize "INDYVENTURES.Chat.IncomeLabel" }}: {{ income }} gp</span> |
           <span>{{ localize "INDYVENTURES.Chat.OutgoingsLabel" }}: {{ outgoings }} gp</span> |
@@ -107,12 +106,12 @@
           </div>
         {{/if}}
 
-        {{#if hasPurchasableBoons}}
+        {{#if boons.length}}
           <div class="indy-venture-boons">
             {{#each boons}}
-              {{#if purchasable}}
-                <div class="indy-venture-boon">
-                  <div class="indy-venture-boon-header">
+              <div class="indy-venture-boon {{#unless purchasable}}is-collapsed{{/unless}}">
+                <div class="indy-venture-boon-header">
+                {{#if purchasable}}
                   <button type="button"
                           data-action="purchaseBoon"
                           data-facility-uuid="{{ ../facilityUuid }}"
@@ -120,7 +119,11 @@
                           data-boon-key="{{ key }}">
                     {{ name }} ({{ cost }} gp)
                   </button>
-                  </div>
+                {{else}}
+                  <div class="indy-venture-boon-label">{{ name }} ({{ cost }} gp)</div>
+                {{/if}}
+                </div>
+                {{#if purchasable}}
                   <div class="indy-venture-boon-body">
                     {{#if description}}
                       <p class="hint boon-description">{{ description }}</p>
@@ -150,8 +153,8 @@
                       </p>
                     {{/if}}
                   </div>
-                </div>
-              {{/if}}
+                {{/if}}
+              </div>
             {{/each}}
           </div>
         {{/if}}

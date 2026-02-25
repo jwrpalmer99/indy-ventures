@@ -313,6 +313,22 @@
   word-break: break-word;
 }
 
+.indy-ventures-card .indy-venture-boon .indy-venture-boon-label {
+  display: block;
+  width: 100%;
+  margin: 0;
+  line-height: 1.2;
+  font-weight: 600;
+  opacity: 0.78;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-ventures-card .indy-venture-boon.is-collapsed {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
 .indy-ventures-card .indy-venture-boon-body {
   margin-top: 0.2rem;
   padding-left: 0.35rem;

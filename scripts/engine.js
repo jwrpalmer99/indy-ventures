@@ -18,7 +18,9 @@ import { moduleLog } from "./logger.js";
 
 const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
 const COVERAGE_TIMEOUT_MS = 60_000;
+const ROLL_TIMEOUT_MS = 120_000;
 const pendingCoverageRequests = new Map();
+const pendingRollRequests = new Map();
 const VENTURE_MODIFIER_FLAG = `flags.${MODULE_ID}.ventureModifier`;
 const VENTURE_MODIFIER_CHANGE_PREFIX = `${VENTURE_MODIFIER_FLAG}.`;
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
@@ -36,7 +38,7 @@ function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
 }
 
-async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
+async function requestLocalUserRoll({ formula, actor, facilityName, rollLabel }) {
   const title = game.i18n.localize("INDYVENTURES.RollPrompt.Title");
   const content = game.i18n.format("INDYVENTURES.RollPrompt.Content", {
     rollLabel,
@@ -82,6 +84,81 @@ async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
   }
 
   return doRoll();
+}
+
+async function requestRollFromOwner({
+  targetUser,
+  actor,
+  facilityName,
+  formula,
+  rollLabel
+}) {
+  const requestId = foundry.utils.randomID();
+  const response = await new Promise(resolve => {
+    const timeout = setTimeout(() => {
+      pendingRollRequests.delete(requestId);
+      resolve({ timedOut: true });
+    }, ROLL_TIMEOUT_MS);
+
+    pendingRollRequests.set(requestId, { resolve, timeout });
+    emitSocket({
+      type: "rollPrompt",
+      requestId,
+      gmUserId: game.user.id,
+      targetUserId: targetUser.id,
+      actorUuid: actor?.uuid ?? "",
+      facilityName,
+      formula,
+      rollLabel
+    });
+  });
+
+  return response;
+}
+
+async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
+  const targetUser = getPreferredCoverageUser(actor);
+  const canDelegate = Boolean(
+    game.user?.isGM
+    && targetUser
+    && targetUser.active
+    && (targetUser.id !== game.user.id)
+  );
+
+  if (!canDelegate) {
+    return requestLocalUserRoll({ formula, actor, facilityName, rollLabel });
+  }
+
+  const delegated = await requestRollFromOwner({
+    targetUser,
+    actor,
+    facilityName,
+    formula,
+    rollLabel
+  });
+
+  const total = Number(delegated?.total);
+  if (Number.isFinite(total)) {
+    moduleLog("Delegated venture roll result received", {
+      actor: actor?.name ?? null,
+      facility: facilityName,
+      rollLabel,
+      formula,
+      total,
+      roller: delegated?.userId ?? targetUser.id
+    });
+    return { total };
+  }
+
+  moduleLog("Delegated venture roll unavailable; falling back to GM roll", {
+    actor: actor?.name ?? null,
+    facility: facilityName,
+    rollLabel,
+    formula,
+    targetUser: targetUser.name,
+    timedOut: Boolean(delegated?.timedOut)
+  });
+  return requestLocalUserRoll({ formula, actor, facilityName, rollLabel });
 }
 
 function parseEffectNumber(value, fallback = 0) {
@@ -1469,6 +1546,49 @@ async function onCoveragePrompt(payload) {
   });
 }
 
+async function onRollPrompt(payload) {
+  if (payload.targetUserId !== game.user.id) return;
+
+  let actor = null;
+  if (payload.actorUuid) {
+    try {
+      actor = await fromUuid(payload.actorUuid);
+    } catch (error) {
+      moduleLog("Roll prompt: failed to resolve actor for delegated roll", {
+        actorUuid: payload.actorUuid,
+        error: String(error?.message ?? error)
+      });
+    }
+  }
+
+  let total = null;
+  try {
+    const roll = await requestLocalUserRoll({
+      formula: payload.formula,
+      actor,
+      facilityName: payload.facilityName,
+      rollLabel: payload.rollLabel
+    });
+    const parsed = Number(roll?.total);
+    total = Number.isFinite(parsed) ? parsed : null;
+  } catch (error) {
+    moduleLog("Roll prompt: delegated roll failed", {
+      user: game.user.name,
+      formula: payload.formula,
+      rollLabel: payload.rollLabel,
+      error: String(error?.message ?? error)
+    });
+  }
+
+  emitSocket({
+    type: "rollResponse",
+    gmUserId: payload.gmUserId,
+    requestId: payload.requestId,
+    userId: game.user.id,
+    total
+  });
+}
+
 function onCoverageResponse(payload) {
   if (!game.user.isGM) return;
   if (payload.gmUserId !== game.user.id) return;
@@ -1483,6 +1603,20 @@ function onCoverageResponse(payload) {
   pendingCoverageRequests.delete(payload.requestId);
 }
 
+function onRollResponse(payload) {
+  if (!game.user.isGM) return;
+  if (payload.gmUserId !== game.user.id) return;
+  const pending = pendingRollRequests.get(payload.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pending.resolve({
+    total: payload.total,
+    userId: payload.userId,
+    timedOut: false
+  });
+  pendingRollRequests.delete(payload.requestId);
+}
+
 export function registerCoveragePromptSocket() {
   if (socketRegistered || !game.socket) return;
   socketRegistered = true;
@@ -1490,5 +1624,7 @@ export function registerCoveragePromptSocket() {
     if (!payload || (typeof payload !== "object")) return;
     if (payload.type === "coveragePrompt") await onCoveragePrompt(payload);
     else if (payload.type === "coverageResponse") onCoverageResponse(payload);
+    else if (payload.type === "rollPrompt") await onRollPrompt(payload);
+    else if (payload.type === "rollResponse") onRollResponse(payload);
   });
 }
