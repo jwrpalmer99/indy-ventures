@@ -79,6 +79,8 @@ export function sanitizeState(raw = {}, config = null) {
   const boonPurchases = {};
   if (merged.boonPurchases && (typeof merged.boonPurchases === "object")) {
     for (const [key, value] of Object.entries(merged.boonPurchases)) {
+      // Runtime now tracks purchases by boon index only. Ignore legacy keys.
+      if (!/^\d+$/.test(String(key))) continue;
       const count = Math.max(asInteger(value, 0), 0);
       if (count > 0) boonPurchases[String(key)] = count;
     }

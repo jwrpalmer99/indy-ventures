@@ -267,12 +267,72 @@ function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
   const purchasesTurnId = String(state?.boonPurchasesTurnId ?? "");
   const stateTurnId = String(state?.turnId ?? "");
   if (!purchasesTurnId || !stateTurnId || (purchasesTurnId !== stateTurnId)) return 0;
+  const fromIndex = Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
   const key = String(boonKey ?? "").trim();
   if (key) {
     const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
-    return Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+    const safeFromKey = Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+    // Keys can contain dots/UUID segments; fall back to index-based counter if key lookup fails.
+    return Math.max(safeFromKey, fromIndex);
   }
-  return Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
+  return fromIndex;
+}
+
+function buildGroupPurchaseCountMap(boons = [], state = {}) {
+  const map = new Map();
+  for (let index = 0; index < boons.length; index += 1) {
+    const boon = boons[index];
+    const groupKey = buildBoonGroupKey(boon);
+    if (!groupKey) continue;
+    const boonKey = buildBoonKey(boon);
+    const purchased = getBoonPurchasesThisTurn(state, index, boonKey);
+    map.set(groupKey, (map.get(groupKey) ?? 0) + purchased);
+  }
+  return map;
+}
+
+function buildSummaryBoons(config, state, turnNet) {
+  const boons = parseBoonsFromConfig(config);
+  const groupLimitMap = buildGroupLimitMap(boons);
+  const groupPurchaseCountMap = buildGroupPurchaseCountMap(boons, state);
+  return boons.map((boon, index) => withBoonAvailability(
+    boon,
+    state,
+    index,
+    turnNet,
+    groupLimitMap,
+    groupPurchaseCountMap
+  ));
+}
+
+function extractPurchaseMapFromSummary(state, boons, summaryBoons = []) {
+  const extracted = {};
+  if (Array.isArray(summaryBoons) && summaryBoons.length) {
+    const byKey = new Map();
+    for (const entry of summaryBoons) {
+      const key = String(entry?.key ?? "").trim();
+      if (!key) continue;
+      byKey.set(key, Math.max(Number(entry?.purchasedThisTurn ?? 0) || 0, 0));
+    }
+    for (let index = 0; index < boons.length; index += 1) {
+      const boon = boons[index];
+      const boonKey = buildBoonKey(boon);
+      const byKeyCount = byKey.get(boonKey);
+      const byIndexCount = Math.max(Number(summaryBoons[index]?.purchasedThisTurn ?? 0) || 0, 0);
+      const count = Math.max(byKeyCount ?? 0, byIndexCount);
+      if (count > 0) extracted[String(index)] = count;
+    }
+    return extracted;
+  }
+
+  // Fallback when summary rows are unavailable.
+  for (let index = 0; index < boons.length; index += 1) {
+    const boon = boons[index];
+    const boonKey = buildBoonKey(boon);
+    const count = getBoonPurchasesThisTurn(state, index, boonKey);
+    if (count > 0) extracted[String(index)] = count;
+  }
+  return extracted;
 }
 
 function resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey = "") {
@@ -307,7 +367,14 @@ function buildGroupLimitMap(boons = []) {
   return map;
 }
 
-function withBoonAvailability(boon, state, boonIndex, turnNet = null, groupLimitMap = null) {
+function withBoonAvailability(
+  boon,
+  state,
+  boonIndex,
+  turnNet = null,
+  groupLimitMap = null,
+  groupPurchaseCountMap = null
+) {
   const reward = resolveRewardDisplayFromBoon(boon);
   const boonKey = String(boon?.key ?? buildBoonKey(boon));
   const group = String(boon?.group ?? "").trim();
@@ -318,7 +385,9 @@ function withBoonAvailability(boon, state, boonIndex, turnNet = null, groupLimit
   const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
   const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
   const purchasedThisTurn = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
-  const purchasedInGroupThisTurn = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
+  const purchasedInGroupThisTurn = groupKey
+    ? Math.max(Number(groupPurchaseCountMap instanceof Map ? groupPurchaseCountMap.get(groupKey) : 0) || 0, 0)
+    : 0;
   const affordable = state.treasury >= boon.cost;
   const underTurnLimit = (perTurnLimit === null) || (purchasedThisTurn < perTurnLimit);
   const underGroupTurnLimit = !groupKey || (groupPerTurnLimit === null) || (purchasedInGroupThisTurn < groupPerTurnLimit);
@@ -692,40 +761,22 @@ async function onPurchaseBoon(message, button) {
       state.boonPurchasesTurnId = state.turnId;
       state.boonPurchases = {};
     }
-    const purchaseState = withBoonAvailability(boon, state, boonIndex, turnNet, groupLimitMap);
-    const summaryEntry = Array.isArray(summary?.boons)
-      ? (summary.boons.find(entry => String(entry?.key ?? "") === String(purchaseState.key ?? "")) ?? summary.boons[boonIndex] ?? null)
-      : null;
-    let correctedState = false;
-    if (purchaseState.blockedByGroupLimit && summaryEntry && purchaseState.groupKey && (purchaseState.groupPerTurnLimit !== null)) {
-      const summaryGroupPurchased = Math.max(Number(summaryEntry.purchasedInGroupThisTurn ?? 0) || 0, 0);
-      if (summaryGroupPurchased < purchaseState.groupPerTurnLimit) {
-        state.boonPurchases = {
-          ...(state.boonPurchases ?? {}),
-          [purchaseState.groupKey]: summaryGroupPurchased
-        };
-        state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
-        correctedState = true;
-      }
-    }
-    if (purchaseState.purchasable === false && !purchaseState.blockedByGroupLimit && summaryEntry && (purchaseState.perTurnLimit !== null)) {
-      const summaryBoonPurchased = Math.max(Number(summaryEntry.purchasedThisTurn ?? 0) || 0, 0);
-      if (summaryBoonPurchased < purchaseState.perTurnLimit) {
-        state.boonPurchases = {
-          ...(state.boonPurchases ?? {}),
-          [String(purchaseState.key ?? buildBoonKey(boon))]: summaryBoonPurchased,
-          [String(boonIndex)]: summaryBoonPurchased
-        };
-        state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
-        correctedState = true;
-      }
-    }
-    const effectivePurchaseState = correctedState
-      ? withBoonAvailability(boon, state, boonIndex, turnNet, groupLimitMap)
-      : purchaseState;
-    if (correctedState) {
+    const normalizedPurchases = extractPurchaseMapFromSummary(state, boons, summary?.boons ?? []);
+    const purchasesChanged = JSON.stringify(state.boonPurchases ?? {}) !== JSON.stringify(normalizedPurchases);
+    state.boonPurchases = normalizedPurchases;
+    state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
+    if (purchasesChanged) {
       await updateFacilityVenture(facility, config, state);
     }
+    const groupPurchaseCountMap = buildGroupPurchaseCountMap(boons, state);
+    const effectivePurchaseState = withBoonAvailability(
+      boon,
+      state,
+      boonIndex,
+      turnNet,
+      groupLimitMap,
+      groupPurchaseCountMap
+    );
     if (!effectivePurchaseState.purchasable) {
       const key = effectivePurchaseState.blockedByWindow
         ? "INDYVENTURES.Errors.BoonPurchaseWindowBlocked"
@@ -739,7 +790,6 @@ async function onPurchaseBoon(message, button) {
         boonIndex,
         requestedIndex,
         requestedKey,
-        correctedState,
         stateTurnId: state.turnId,
         messageTurnId: turnId,
         affordable: effectivePurchaseState.affordable,
@@ -756,7 +806,7 @@ async function onPurchaseBoon(message, button) {
       if (summary) {
         summary.treasury = state.treasury;
         summary.lastTurnNet = turnNet;
-        summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
+        summary.boons = buildSummaryBoons(config, state, turnNet);
         summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
         await rerenderSummaryMessage(message, actorUuid, results);
       }
@@ -775,18 +825,14 @@ async function onPurchaseBoon(message, button) {
     }
 
     const boonKey = String(effectivePurchaseState.key ?? buildBoonKey(boon));
-    const groupKey = String(effectivePurchaseState.groupKey ?? "");
     const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
-    const previousGroupPurchaseCount = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
     const previousTreasury = state.treasury;
     state.treasury -= boon.cost;
     state.boonPurchases = {
       ...(state.boonPurchases ?? {}),
-      [boonKey]: previousPurchaseCount + 1,
       [String(boonIndex)]: previousPurchaseCount + 1
     };
     state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
-    if (groupKey) state.boonPurchases[groupKey] = previousGroupPurchaseCount + 1;
     await updateFacilityVenture(facility, config, state);
     moduleLog("Boon purchase: funds reserved", {
       actor: actor.name,
@@ -796,7 +842,7 @@ async function onPurchaseBoon(message, button) {
       treasuryBefore: previousTreasury,
       treasuryAfter: state.treasury,
       purchasedThisTurnBefore: previousPurchaseCount,
-      purchasedThisTurnAfter: state.boonPurchases[boonKey],
+      purchasedThisTurnAfter: getBoonPurchasesThisTurn(state, boonIndex, boonKey),
       rewardUuid: boon.rewardUuid || null
     });
 
@@ -807,15 +853,9 @@ async function onPurchaseBoon(message, button) {
       } catch (error) {
         state.treasury = previousTreasury;
         if (previousPurchaseCount > 0) {
-          state.boonPurchases[boonKey] = previousPurchaseCount;
           state.boonPurchases[String(boonIndex)] = previousPurchaseCount;
         } else {
-          delete state.boonPurchases[boonKey];
           delete state.boonPurchases[String(boonIndex)];
-        }
-        if (groupKey) {
-          if (previousGroupPurchaseCount > 0) state.boonPurchases[groupKey] = previousGroupPurchaseCount;
-          else delete state.boonPurchases[groupKey];
         }
         await updateFacilityVenture(facility, config, state);
         ui.notifications.error(error.message);
@@ -835,7 +875,7 @@ async function onPurchaseBoon(message, button) {
     if (summary) {
       summary.treasury = state.treasury;
       summary.lastTurnNet = turnNet;
-      summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
+      summary.boons = buildSummaryBoons(config, state, turnNet);
       summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
       await rerenderSummaryMessage(message, actorUuid, results);
     }
@@ -893,9 +933,7 @@ async function onClaimTreasury(message, button) {
   if (summary) {
     const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
     summary.treasury = state.treasury;
-    const boons = parseBoonsFromConfig(config);
-    const groupLimitMap = buildGroupLimitMap(boons);
-    summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
+    summary.boons = buildSummaryBoons(config, state, turnNet);
     summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
     await rerenderSummaryMessage(message, actorUuid, results);
   }

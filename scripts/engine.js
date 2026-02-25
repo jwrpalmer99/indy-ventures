@@ -763,12 +763,15 @@ function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
   const purchasesTurnId = String(state?.boonPurchasesTurnId ?? "");
   const stateTurnId = String(state?.turnId ?? "");
   if (!purchasesTurnId || !stateTurnId || (purchasesTurnId !== stateTurnId)) return 0;
+  const fromIndex = Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
   const key = String(boonKey ?? "").trim();
   if (key) {
     const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
-    return Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+    const safeFromKey = Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
+    // Keys can contain dots/UUID segments; fall back to index-based counter if key lookup fails.
+    return Math.max(safeFromKey, fromIndex);
   }
-  return Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
+  return fromIndex;
 }
 
 function buildGroupLimitMap(boons = []) {
@@ -780,6 +783,19 @@ function buildGroupLimitMap(boons = []) {
     if (limit === null) continue;
     const existing = map.get(groupKey);
     map.set(groupKey, existing === undefined ? limit : Math.min(existing, limit));
+  }
+  return map;
+}
+
+function buildGroupPurchaseCountMap(boons = [], state = {}) {
+  const map = new Map();
+  for (let index = 0; index < boons.length; index += 1) {
+    const boon = boons[index];
+    const groupKey = buildBoonGroupKey(boon);
+    if (!groupKey) continue;
+    const boonKey = buildBoonKey(boon);
+    const purchased = getBoonPurchasesThisTurn(state, index, boonKey);
+    map.set(groupKey, (map.get(groupKey) ?? 0) + purchased);
   }
   return map;
 }
@@ -1358,6 +1374,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
 
   const parsedBoons = parseBoonsFromConfig(config);
   const groupLimitMap = buildGroupLimitMap(parsedBoons);
+  const groupPurchaseCountMap = buildGroupPurchaseCountMap(parsedBoons, state);
   const boons = parsedBoons.map((boon, index) => {
     const reward = resolveRewardDisplayData(boon);
     const boonKey = buildBoonKey(boon);
@@ -1367,7 +1384,9 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     const mappedGroupPerTurnLimit = groupKey ? groupLimitMap.get(groupKey) : undefined;
     const groupPerTurnLimit = (mappedGroupPerTurnLimit === undefined) ? baseGroupPerTurnLimit : mappedGroupPerTurnLimit;
     const purchasedThisTurn = getBoonPurchasesThisTurn(state, index, boonKey);
-    const purchasedInGroupThisTurn = groupKey ? getBoonPurchasesThisTurn(state, index, groupKey) : 0;
+    const purchasedInGroupThisTurn = groupKey
+      ? Math.max(Number(groupPurchaseCountMap.get(groupKey) ?? 0) || 0, 0)
+      : 0;
     const perTurnLimit = parseBoonPerTurnLimit(boon.perTurnLimit, 1);
     const purchaseWhen = parseBoonPurchaseWhen(boon.purchaseWhen, "default");
     const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
