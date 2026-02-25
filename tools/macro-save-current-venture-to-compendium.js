@@ -5,7 +5,9 @@
  * Usage:
  * 1. Open the Venture Facility item sheet you want to save.
  * 2. Run this macro.
- * 3. It creates a new entry, or updates an existing one by system.identifier/name.
+ * 3. It creates a new entry, or updates an existing one.
+ *    - Updates existing when identifier+name (or name) matches.
+ *    - If identifier matches but name differs, creates a new entry with a new identifier.
  */
 
 const MODULE_ID = "indy-ventures";
@@ -24,6 +26,34 @@ function findOpenVentureFacility() {
     if (isVentureFacility(doc)) return doc;
   }
   return null;
+}
+
+function slugifyIdentifier(value, fallback = "venture") {
+  const slug = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || fallback;
+}
+
+function getUniqueIdentifier(baseIdentifier, docs) {
+  const existing = new Set(
+    docs
+      .map(doc => String(doc.system?.identifier ?? "").trim())
+      .filter(Boolean)
+  );
+
+  const base = slugifyIdentifier(baseIdentifier);
+  if (!existing.has(base)) return base;
+
+  let index = 2;
+  let candidate = `${base}-${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `${base}-${index}`;
+  }
+  return candidate;
 }
 
 (async () => {
@@ -51,26 +81,41 @@ function findOpenVentureFacility() {
   data.ownership = { default: 0 };
 
   const docs = await pack.getDocuments();
-  const identifier = data.system?.identifier;
-  const existing = docs.find(doc => {
-    if (identifier && (doc.system?.identifier === identifier)) return true;
-    return doc.name === data.name;
-  });
+  const identifier = String(data.system?.identifier ?? "").trim();
+  const sameIdentifier = identifier
+    ? docs.filter(doc => String(doc.system?.identifier ?? "").trim() === identifier)
+    : [];
+  const sameIdentifierSameName = sameIdentifier.find(doc => doc.name === data.name);
 
   const wasLocked = pack.locked;
   try {
     if (wasLocked) await pack.configure({ locked: false });
 
-    if (existing) {
-      await pack.documentClass.updateDocuments([{ ...data, _id: existing.id }], {
+    if (sameIdentifierSameName) {
+      await pack.documentClass.updateDocuments([{ ...data, _id: sameIdentifierSameName.id }], {
         pack: pack.collection
       });
       ui.notifications.info(`Updated compendium venture: ${source.name}`);
-    } else {
+    } else if (sameIdentifier.length) {
+      const newIdentifier = getUniqueIdentifier(identifier, docs);
+      foundry.utils.setProperty(data, "system.identifier", newIdentifier);
       await pack.documentClass.createDocuments([data], {
         pack: pack.collection
       });
-      ui.notifications.info(`Added compendium venture: ${source.name}`);
+      ui.notifications.info(`Added compendium venture copy: ${source.name} (identifier: ${newIdentifier})`);
+    } else {
+      const sameName = docs.find(doc => doc.name === data.name);
+      if (sameName) {
+        await pack.documentClass.updateDocuments([{ ...data, _id: sameName.id }], {
+          pack: pack.collection
+        });
+        ui.notifications.info(`Updated compendium venture: ${source.name}`);
+      } else {
+        await pack.documentClass.createDocuments([data], {
+          pack: pack.collection
+        });
+        ui.notifications.info(`Added compendium venture: ${source.name}`);
+      }
     }
   } catch (error) {
     console.error(`${MODULE_ID} | Failed to save venture to compendium`, error);

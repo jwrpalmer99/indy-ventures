@@ -115,6 +115,7 @@
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
+  margin-top: 20px;
 }
 
 .indy-ventures-sheet .indy-effects-table {
@@ -178,6 +179,12 @@
   border: 1px solid var(--dnd5e-color-card-border, #786452);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
+  width: 100%;
+  max-width: min(100%, 42rem);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .indy-ventures-card .card-header h3 {
@@ -205,11 +212,22 @@
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .indy-ventures-card .indy-venture-row h4 {
   margin: 0;
   font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-ventures-card .indy-venture-row header > span {
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .indy-ventures-card .indy-venture-row p {
@@ -236,6 +254,9 @@
 .indy-ventures-card .indy-venture-boon button {
   width: 100%;
   margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .indy-ventures-card .indy-venture-boon-body {
@@ -277,6 +298,11 @@
   display: inline-flex;
   gap: 0.25rem;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .indy-ventures-card .indy-boon-reward-icon {

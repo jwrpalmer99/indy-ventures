@@ -8,9 +8,9 @@ import {
 import {
   buildBoonKey,
   boonPurchaseWhenAllows,
-  getActorGp,
   parseBoonPerTurnLimit,
   parseBoonPurchaseWhen,
+  resolveRewardDocumentSync,
   shiftDie
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
@@ -22,6 +22,14 @@ const VENTURE_MODIFIER_FLAG = `flags.${MODULE_ID}.ventureModifier`;
 const VENTURE_MODIFIER_CHANGE_PREFIX = `${VENTURE_MODIFIER_FLAG}.`;
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
 const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
+const CURRENCY_IN_CP = {
+  pp: 1000,
+  gp: 100,
+  ep: 50,
+  sp: 10,
+  cp: 1
+};
+const CURRENCY_ORDER = ["pp", "gp", "ep", "sp", "cp"];
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
@@ -96,6 +104,86 @@ function parseEffectBoolean(value, fallback = false) {
 function parseEffectDie(value) {
   const die = String(value ?? "").trim().toLowerCase();
   return DICE_STEPS.includes(die) ? die : null;
+}
+
+function parseCurrencyValue(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(parsed, 0);
+}
+
+function gpToCp(gp) {
+  return Math.max(Math.round((Number(gp) || 0) * 100), 0);
+}
+
+function cpToGp(cp) {
+  return Math.max((Number(cp) || 0) / 100, 0);
+}
+
+function formatGpAmount(value) {
+  const amount = Number(value) || 0;
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function createCoverageWallet(actor) {
+  const wallet = {
+    currency: {},
+    dirty: false
+  };
+  for (const key of CURRENCY_ORDER) {
+    wallet.currency[key] = parseCurrencyValue(actor?.system?.currency?.[key] ?? 0);
+  }
+  return wallet;
+}
+
+function getWalletCurrency(wallet, key) {
+  return parseCurrencyValue(wallet?.currency?.[key] ?? 0);
+}
+
+function getWalletTotalCp(wallet) {
+  return CURRENCY_ORDER.reduce((total, key) => total + (getWalletCurrency(wallet, key) * CURRENCY_IN_CP[key]), 0);
+}
+
+function getWalletTotalGp(wallet) {
+  return cpToGp(getWalletTotalCp(wallet));
+}
+
+function canCoverFromInventory(wallet, gpAmount) {
+  return getWalletTotalCp(wallet) >= gpToCp(gpAmount);
+}
+
+function spendFromGp(wallet, gpAmount) {
+  const amount = Math.max(Number(gpAmount) || 0, 0);
+  if (amount <= 0) return true;
+  const gp = getWalletCurrency(wallet, "gp");
+  if (gp < amount) return false;
+  wallet.currency.gp = gp - amount;
+  wallet.dirty = true;
+  return true;
+}
+
+function spendFromInventory(wallet, gpAmount) {
+  const requiredCp = gpToCp(gpAmount);
+  if (requiredCp <= 0) return true;
+  const totalCp = getWalletTotalCp(wallet);
+  if (totalCp < requiredCp) return false;
+
+  let remainingCp = totalCp - requiredCp;
+  for (const key of CURRENCY_ORDER) {
+    const unit = CURRENCY_IN_CP[key];
+    wallet.currency[key] = Math.floor(remainingCp / unit);
+    remainingCp %= unit;
+  }
+  wallet.dirty = true;
+  return true;
+}
+
+function buildWalletUpdateData(wallet) {
+  const update = {};
+  for (const key of CURRENCY_ORDER) {
+    update[`system.currency.${key}`] = getWalletCurrency(wallet, key);
+  }
+  return update;
 }
 
 function summarizeModifierEffect(modifier) {
@@ -539,8 +627,8 @@ function resolveRewardDisplayData(boon) {
   const rewardUuid = String(boon?.rewardUuid ?? "").trim();
   let rewardName = String(boon?.rewardLabel ?? boon?.rewardUuid ?? "").trim();
   let rewardImg = "";
-  if (rewardUuid && globalThis.fromUuidSync) {
-    const doc = fromUuidSync(rewardUuid, { strict: false });
+  if (rewardUuid) {
+    const doc = resolveRewardDocumentSync(rewardUuid);
     if (doc?.name) rewardName = doc.name;
     if (doc?.img) rewardImg = doc.img;
   }
@@ -574,13 +662,16 @@ function getPreferredCoverageUser(actor) {
   return activeOwners.find(user => !user.isGM) ?? activeOwners[0] ?? null;
 }
 
-async function confirmCoveragePrompt({
+async function promptCoverageChoice({
   actorName,
   ventureName,
   deficit,
   treasuryCover,
   characterCover,
   availableGp,
+  availableInventoryGp,
+  canCoverWithGp,
+  canCoverWithInventory,
   deciderName
 }) {
   const title = game.i18n.localize("INDYVENTURES.Prompt.Title");
@@ -591,20 +682,42 @@ async function confirmCoveragePrompt({
     treasuryCover,
     characterCover,
     availableGp,
+    availableInventoryGp,
     decider: deciderName
   });
+  const coverFromGpLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromGp");
+  const coverFromInventoryLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromInventory");
+  const declineLabel = game.i18n.localize("INDYVENTURES.Prompt.Decline");
 
-  if (foundry.applications?.api?.DialogV2?.confirm) {
-    return foundry.applications.api.DialogV2.confirm({
-      window: { title },
+  return new Promise(resolve => {
+    const buttons = {};
+    if (canCoverWithGp) {
+      buttons.coverGp = {
+        label: coverFromGpLabel,
+        callback: () => resolve("gp")
+      };
+    }
+    if (canCoverWithInventory) {
+      buttons.coverInventory = {
+        label: coverFromInventoryLabel,
+        callback: () => resolve("inventory")
+      };
+    }
+    buttons.decline = {
+      label: declineLabel,
+      callback: () => resolve("decline")
+    };
+
+    const defaultButton = canCoverWithGp
+      ? "coverGp"
+      : (canCoverWithInventory ? "coverInventory" : "decline");
+    new Dialog({
+      title,
       content,
-      rejectClose: false
-    });
-  }
-
-  return Dialog.confirm({
-    title,
-    content
+      buttons,
+      default: defaultButton,
+      close: () => resolve("decline")
+    }).render(true);
   });
 }
 
@@ -615,13 +728,16 @@ async function requestCoverageDecisionFromOwner({
   deficit,
   treasuryCover,
   characterCover,
-  availableGp
+  availableGp,
+  availableInventoryGp,
+  canCoverWithGp,
+  canCoverWithInventory
 }) {
   const requestId = foundry.utils.randomID();
   const response = await new Promise(resolve => {
     const timeout = setTimeout(() => {
       pendingCoverageRequests.delete(requestId);
-      resolve({ approved: false, timedOut: true, userId: targetUser.id });
+      resolve({ choice: "decline", timedOut: true, userId: targetUser.id });
     }, COVERAGE_TIMEOUT_MS);
 
     pendingCoverageRequests.set(requestId, { resolve, timeout });
@@ -637,7 +753,10 @@ async function requestCoverageDecisionFromOwner({
       deficit,
       treasuryCover,
       characterCover,
-      availableGp
+      availableGp,
+      availableInventoryGp,
+      canCoverWithGp,
+      canCoverWithInventory
     });
   });
 
@@ -657,10 +776,11 @@ async function maybeCoverCharacterDeficit({
     coveredCharacter: false,
     autoCovered: false,
     manualCovered: false,
+    coveredByInventory: false,
     promptDeclined: false,
     promptTimedOut: false,
     promptUserName: null,
-    insufficientFunds: wallet.gp < characterCover,
+    insufficientFunds: false,
     characterCovered: 0
   };
 
@@ -669,11 +789,14 @@ async function maybeCoverCharacterDeficit({
     return result;
   }
 
-  if (wallet.gp < characterCover) return result;
+  const canCoverWithGp = getWalletCurrency(wallet, "gp") >= characterCover;
+  const canCoverWithInventory = canCoverFromInventory(wallet, characterCover);
+  result.insufficientFunds = !canCoverWithGp && !canCoverWithInventory;
+  if (result.insufficientFunds) return result;
 
   if (autoCoverLoss) {
-    wallet.gp -= characterCover;
-    wallet.dirty = true;
+    result.insufficientFunds = !canCoverWithGp;
+    if (!spendFromGp(wallet, characterCover)) return result;
     result.coveredCharacter = true;
     result.autoCovered = true;
     result.characterCovered = characterCover;
@@ -682,22 +805,30 @@ async function maybeCoverCharacterDeficit({
 
   const preferredUser = getPreferredCoverageUser(actor);
   if (!preferredUser || (preferredUser.id === game.user.id)) {
-    const approved = await confirmCoveragePrompt({
+    const choice = await promptCoverageChoice({
       actorName: actor.name,
       ventureName: facility.name,
       deficit,
       treasuryCover,
       characterCover,
-      availableGp: wallet.gp,
+      availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
+      availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
+      canCoverWithGp,
+      canCoverWithInventory,
       deciderName: game.user.name
     });
 
     result.promptUserName = game.user.name;
-    if (approved) {
-      wallet.gp -= characterCover;
-      wallet.dirty = true;
+    if (choice === "gp") {
+      if (!spendFromGp(wallet, characterCover)) return result;
       result.coveredCharacter = true;
       result.manualCovered = true;
+      result.characterCovered = characterCover;
+    } else if (choice === "inventory") {
+      if (!spendFromInventory(wallet, characterCover)) return result;
+      result.coveredCharacter = true;
+      result.manualCovered = true;
+      result.coveredByInventory = true;
       result.characterCovered = characterCover;
     } else {
       result.promptDeclined = true;
@@ -712,16 +843,24 @@ async function maybeCoverCharacterDeficit({
     deficit,
     treasuryCover,
     characterCover,
-    availableGp: wallet.gp
+    availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
+    availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
+    canCoverWithGp,
+    canCoverWithInventory
   });
 
   result.promptUserName = preferredUser.name;
   result.promptTimedOut = Boolean(decision?.timedOut);
-  if (decision?.approved) {
-    wallet.gp -= characterCover;
-    wallet.dirty = true;
+  if (decision?.choice === "gp") {
+    if (!spendFromGp(wallet, characterCover)) return result;
     result.coveredCharacter = true;
     result.manualCovered = true;
+    result.characterCovered = characterCover;
+  } else if (decision?.choice === "inventory") {
+    if (!spendFromInventory(wallet, characterCover)) return result;
+    result.coveredCharacter = true;
+    result.manualCovered = true;
+    result.coveredByInventory = true;
     result.characterCovered = characterCover;
   } else {
     result.promptDeclined = !result.promptTimedOut;
@@ -800,6 +939,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   let coveredDeficit = false;
   let autoCovered = false;
   let manualCovered = false;
+  let coveredByInventory = false;
   let promptDeclined = false;
   let promptTimedOut = false;
   let promptUserName = null;
@@ -844,6 +984,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     coveredDeficit = (treasuryCovered + characterCovered) >= deficit;
     autoCovered = coverage.autoCovered;
     manualCovered = coverage.manualCovered;
+    coveredByInventory = coverage.coveredByInventory;
     promptDeclined = coverage.promptDeclined;
     promptTimedOut = coverage.promptTimedOut;
     promptUserName = coverage.promptUserName;
@@ -943,6 +1084,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       coveredDeficit,
       autoCovered,
       manualCovered,
+      coveredByInventory,
       promptDeclined,
       promptTimedOut,
       promptUserName,
@@ -980,6 +1122,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     coveredDeficit,
     autoCovered,
     manualCovered,
+    coveredByInventory,
     treasuryCovered,
     characterCovered,
     uncoveredDeficit,
@@ -1036,8 +1179,7 @@ export async function processActorVenturesFromBastionMessage(message) {
   if (!actor || actor.type !== "character") return;
 
   const wallet = {
-    gp: getActorGp(actor),
-    dirty: false
+    ...createCoverageWallet(actor)
   };
 
   const facilities = actor.itemTypes?.facility ?? [];
@@ -1058,7 +1200,7 @@ export async function processActorVenturesFromBastionMessage(message) {
   }
 
   if (wallet.dirty) {
-    await actor.update({ "system.currency.gp": wallet.gp });
+    await actor.update(buildWalletUpdateData(wallet));
   }
 
   await decrementModifierDurations(modifierDurationUsage);
@@ -1066,7 +1208,7 @@ export async function processActorVenturesFromBastionMessage(message) {
     moduleLog("Bastion venture processing complete", {
       actor: actor.name,
       facilitiesProcessed: 0,
-      gpAfter: wallet.gp,
+      gpAfter: getWalletCurrency(wallet, "gp"),
       bastionDurationsProcessed: bastionDurationEffects.length
     });
     return;
@@ -1074,7 +1216,7 @@ export async function processActorVenturesFromBastionMessage(message) {
   moduleLog("Bastion venture processing complete", {
     actor: actor.name,
     facilitiesProcessed: results.length,
-    gpAfter: wallet.gp,
+    gpAfter: getWalletCurrency(wallet, "gp"),
     bastionDurationsProcessed: bastionDurationEffects.length
   });
 
@@ -1087,13 +1229,16 @@ let socketRegistered = false;
 
 async function onCoveragePrompt(payload) {
   if (payload.targetUserId !== game.user.id) return;
-  const approved = await confirmCoveragePrompt({
+  const choice = await promptCoverageChoice({
     actorName: payload.actorName,
     ventureName: payload.ventureName,
     deficit: payload.deficit,
     treasuryCover: payload.treasuryCover ?? 0,
     characterCover: payload.characterCover ?? 0,
     availableGp: payload.availableGp,
+    availableInventoryGp: payload.availableInventoryGp ?? payload.availableGp,
+    canCoverWithGp: payload.canCoverWithGp !== false,
+    canCoverWithInventory: payload.canCoverWithInventory !== false,
     deciderName: game.user.name
   });
 
@@ -1102,7 +1247,7 @@ async function onCoveragePrompt(payload) {
     gmUserId: payload.gmUserId,
     requestId: payload.requestId,
     userId: game.user.id,
-    approved: Boolean(approved)
+    choice
   });
 }
 
@@ -1113,7 +1258,7 @@ function onCoverageResponse(payload) {
   if (!pending) return;
   clearTimeout(pending.timeout);
   pending.resolve({
-    approved: Boolean(payload.approved),
+    choice: String(payload.choice ?? "decline"),
     userId: payload.userId,
     timedOut: false
   });

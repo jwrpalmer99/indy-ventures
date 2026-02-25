@@ -10,7 +10,8 @@ import {
   boonPurchaseWhenAllows,
   getActorGp,
   parseBoonPerTurnLimit,
-  parseBoonPurchaseWhen
+  parseBoonPurchaseWhen,
+  resolveRewardDocumentSync
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
 
@@ -244,8 +245,8 @@ function resolveRewardDisplayFromBoon(boon) {
   const rewardUuid = String(boon?.rewardUuid ?? "").trim();
   let rewardName = String(boon?.rewardName ?? boon?.rewardLabel ?? boon?.rewardUuid ?? "").trim();
   let rewardImg = String(boon?.rewardImg ?? "").trim();
-  if (rewardUuid && (!rewardName || !rewardImg) && globalThis.fromUuidSync) {
-    const doc = fromUuidSync(rewardUuid, { strict: false });
+  if (rewardUuid && (!rewardName || !rewardImg)) {
+    const doc = resolveRewardDocumentSync(rewardUuid);
     if (doc?.name && !rewardName) rewardName = doc.name;
     if (doc?.img && !rewardImg) rewardImg = doc.img;
   }

@@ -6,7 +6,8 @@ import {
   normalizeDie,
   parseBoonPerTurnLimit,
   parseBoonPurchaseWhen,
-  parseBoonsText
+  parseBoonsText,
+  resolveRewardDocumentSync
 } from "./utils.js";
 
 const FLAG_CONFIG = `flags.${MODULE_ID}.config`;
@@ -196,8 +197,8 @@ export function prepareFacilitySheetContext(facility) {
 
     let rewardName = String(boon.rewardLabel ?? boon.rewardUuid ?? "").trim();
     let rewardImg = "";
-    if (rewardUuid && globalThis.fromUuidSync) {
-      const doc = fromUuidSync(rewardUuid, { strict: false });
+    if (rewardUuid) {
+      const doc = resolveRewardDocumentSync(rewardUuid);
       if (doc?.name) rewardName = doc.name;
       if (doc?.img) rewardImg = doc.img;
     }

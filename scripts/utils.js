@@ -166,3 +166,25 @@ export function buildBoonKey(boon = {}) {
 export function getActorGp(actor) {
   return Number(actor?.system?.currency?.gp ?? 0) || 0;
 }
+
+export function resolveRewardDocumentSync(uuid) {
+  const rewardUuid = String(uuid ?? "").trim();
+  if (!rewardUuid || !globalThis.fromUuidSync) return null;
+
+  const direct = fromUuidSync(rewardUuid, { strict: false });
+  if (direct) return direct;
+
+  const embeddedEffectMatch = rewardUuid.match(/^(.*)\.ActiveEffect\.([^.]+)$/);
+  if (!embeddedEffectMatch) return null;
+
+  const parentUuid = embeddedEffectMatch[1];
+  const effectId = embeddedEffectMatch[2];
+  const parentDoc = fromUuidSync(parentUuid, { strict: false });
+  if (!parentDoc?.effects) return null;
+
+  if (typeof parentDoc.effects.get === "function") {
+    return parentDoc.effects.get(effectId) ?? null;
+  }
+
+  return parentDoc.effects.find(effect => effect?.id === effectId) ?? null;
+}

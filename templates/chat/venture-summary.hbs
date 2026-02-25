@@ -40,8 +40,13 @@
         {{#if autoCovered}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitCovered" character=characterCovered }}</p>
         {{/if}}
+        {{#if coveredByInventory}}
+          <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitCoveredManualInventory" character=characterCovered decider=promptUserName }}</p>
+        {{/if}}
         {{#if manualCovered}}
+          {{#unless coveredByInventory}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitCoveredManual" character=characterCovered decider=promptUserName }}</p>
+          {{/unless}}
         {{/if}}
         {{#if hasCoverageSources}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.DeficitSources" treasury=treasuryCovered character=characterCovered }}</p>

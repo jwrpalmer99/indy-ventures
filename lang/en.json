@@ -85,11 +85,12 @@
       "BoonReward": "Reward on purchase: {reward}",
       "DeficitCovered": "Remaining deficit of {character} gp was automatically covered from character funds.",
       "DeficitCoveredManual": "{decider} chose to cover the remaining {character} gp deficit from character funds.",
-      "DeficitSources": "Loss coverage used {treasury} gp from venture treasury and {character} gp from character GP.",
+      "DeficitCoveredManualInventory": "{decider} chose to cover the remaining {character} gp deficit from character inventory funds.",
+      "DeficitSources": "Loss coverage used {treasury} gp from venture treasury and {character} gp from character funds.",
       "DeficitDeclined": "{decider} declined to cover this venture's deficit.",
       "DeficitTimedOut": "No response from {decider}; deficit coverage timed out.",
       "DeficitRemaining": "{uncovered} gp of deficit remained uncovered.",
-      "DeficitInsufficient": "Insufficient character GP to cover the remaining {deficit} gp deficit.",
+      "DeficitInsufficient": "Insufficient character funds to cover the remaining {deficit} gp deficit.",
       "Grew": "Venture momentum increased. Profit die improved.",
       "Degraded": "Venture underperformed. Profit die degraded.",
       "Failed": "The venture failed and has been disabled."
@@ -156,7 +157,10 @@
     },
     "Prompt": {
       "Title": "Cover Venture Deficit?",
-      "Content": "<p><strong>{decider}</strong>, do you want to cover this venture loss?</p><p>Actor: <strong>{actor}</strong><br>Venture: <strong>{venture}</strong><br>Total Deficit: <strong>{deficit} gp</strong><br>From Venture Treasury: <strong>{treasuryCover} gp</strong><br>From Character GP: <strong>{characterCover} gp</strong><br>Available Character GP: <strong>{availableGp} gp</strong></p>",
+      "Content": "<p><strong>{decider}</strong>, how do you want to cover this venture loss?</p><p>Actor: <strong>{actor}</strong><br>Venture: <strong>{venture}</strong><br>Total Deficit: <strong>{deficit} gp</strong><br>From Venture Treasury: <strong>{treasuryCover} gp</strong><br>From Character Funds Needed: <strong>{characterCover} gp</strong><br>Available Character GP: <strong>{availableGp} gp</strong><br>Total Inventory Currency Value: <strong>{availableInventoryGp} gp</strong></p>",
+      "CoverFromGp": "Cover from GP",
+      "CoverFromInventory": "Cover from Inventory",
+      "Decline": "Do Not Cover",
       "ClaimTitle": "Claim Venture Treasury",
       "ClaimConfirm": "Claim GP",
       "ClaimContent": "<p>How much GP do you want to claim from <strong>{venture}</strong>?</p><div class=\"form-group\"><label>Amount (max {maxAmount} gp)</label><div class=\"form-fields\"><input type=\"number\" name=\"amount\" min=\"1\" max=\"{maxAmount}\" step=\"1\" value=\"{maxAmount}\" /></div></div>"
