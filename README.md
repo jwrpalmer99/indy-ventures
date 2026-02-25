@@ -12,7 +12,7 @@ The module integrates the idea of Ventures from https://blackcitadelrpg.com/runn
 - Automatic venture resolution on bastion turns.
 - Prompted profit/loss rolling (interactive roll dialogs).
 - Venture state tracking: current profit die, success streak, venture treasury, and failed state.
-- Boon system with per-boon per-turn limits, purchase windows, reward UUID support, and group turn limits.
+- Boon system with per-boon per-turn limits, boons that are only active while making profit/loss, reward UUID (items and effects) support, and group turn limits.
 - Active-effect driven venture modifiers (profit/loss die behavior, success threshold override, profit bonus, duration).
 - Venture summary chat cards with boon purchase buttons and treasury claim actions.
 - Compendiums grouped under **Indy Ventures**:
@@ -97,14 +97,14 @@ The boon editor wand button can generate a venture-modifier reward effect templa
 
 ## Non-Venture Bastion Durations (General Effects)
 
-For non-venture Active Effects, use:
+For non-venture Active Effects (ie if you want to apply a buff to the bastion's owner) use:
 
 - `flags.indy-ventures.bastionDuration.expireNextTurn` (`true` / `false`)
 - `flags.indy-ventures.bastionDuration.remainingTurns` (number)
 - `flags.indy-ventures.bastionDuration.durationFormula` (roll formula)
 - `flags.indy-ventures.bastionDuration.consumePerTurn` (`true` / `false`)
 
-These are consumed on bastion turns and can be used for temporary actor buffs granted by boons.
+These are consumed on bastion turns and can be used for temporary actor buffs granted by boons that last for 1 (or n) bastion turns.
 
 ## Turn Resolution Behavior
 
@@ -145,19 +145,8 @@ Cards also show net result styling, profit die changes, and applied venture modi
 
 ## Compendium and Macro Workflow
 
-The module provides:
-
-- `Indy Ventures / Venture Facilities` compendium
-- `Indy Ventures / Venture Macros` compendium
-
-Included utility macro scripts in `tools/`:
-
-- `tools/macro-save-current-venture-to-compendium.js`: saves currently open venture facility to compendium.
-- `tools/macro-save-selected-actor-venture-to-compendium.js`: pick actor + venture facility, then save to compendium.
-- `tools/macro-populate-venture-facilities.js`: seed the facilities pack with starter entries.
-
-Save macros update matching entries when identifier+name (or name) matches.
-If identifier matches but name differs, they create a new entry with a new unique identifier.
+- `Indy Ventures / Venture Facilities` compendium - this includes example ventures and some items/effects those examples need.
+- `Indy Ventures / Venture Macros` compendium - contains a macro to copy a venture to a compendium (edit with your required compendium id).
 
 ## Troubleshooting
 
