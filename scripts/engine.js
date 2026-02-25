@@ -20,6 +20,8 @@ const COVERAGE_TIMEOUT_MS = 60_000;
 const pendingCoverageRequests = new Map();
 const VENTURE_MODIFIER_FLAG = `flags.${MODULE_ID}.ventureModifier`;
 const VENTURE_MODIFIER_CHANGE_PREFIX = `${VENTURE_MODIFIER_FLAG}.`;
+const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
+const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
@@ -81,7 +83,13 @@ function parseEffectNumber(value, fallback = 0) {
 function parseEffectBoolean(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.toLowerCase() === "true";
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "off", ""].includes(normalized)) return false;
+    return fallback;
+  }
   return Boolean(value);
 }
 
@@ -194,6 +202,36 @@ function effectHasVentureModifierDefinition(effect) {
     const key = String(change?.key ?? "");
     return key.startsWith(VENTURE_MODIFIER_CHANGE_PREFIX);
   });
+}
+
+function getBastionDurationData(effect) {
+  if (!effect) return null;
+  const rawFlagData = effect.getFlag(MODULE_ID, "bastionDuration");
+  const fromFlags = (rawFlagData && (typeof rawFlagData === "object")) ? rawFlagData : {};
+  const fromChanges = {};
+  for (const change of effect.changes ?? []) {
+    const key = String(change?.key ?? "");
+    if (!key.startsWith(BASTION_DURATION_CHANGE_PREFIX)) continue;
+    const subKey = key.slice(BASTION_DURATION_CHANGE_PREFIX.length);
+    foundry.utils.setProperty(fromChanges, subKey, change?.value);
+  }
+
+  const raw = foundry.utils.mergeObject(fromChanges, fromFlags, {
+    inplace: false,
+    recursive: true,
+    insertKeys: true
+  });
+  const expireNextTurn = parseEffectBoolean(raw.expireNextTurn, false);
+  const durationFormula = String(raw.durationFormula ?? "").trim();
+  const remainingTurnsRaw = raw.remainingTurns;
+  let remainingTurns = ((remainingTurnsRaw === undefined) || (remainingTurnsRaw === null) || (String(remainingTurnsRaw).trim() === ""))
+    ? null
+    : Math.max(parseEffectNumber(remainingTurnsRaw, 0), 0);
+  if (expireNextTurn && (remainingTurns === null)) remainingTurns = 1;
+  const consumePerTurn = parseEffectBoolean(raw.consumePerTurn, true);
+
+  if (!expireNextTurn && (remainingTurns === null) && !durationFormula) return null;
+  return { expireNextTurn, remainingTurns, durationFormula, consumePerTurn };
 }
 
 function modifierAppliesToFacility(modifier, facility) {
@@ -319,6 +357,7 @@ function collectActiveVentureModifiers(actor, facility) {
         trackedEffects.push({
           effectId: modifier.effectId,
           remainingTurns: modifier.remainingTurns,
+          durationPath: `${VENTURE_MODIFIER_FLAG}.remainingTurns`,
           ownerType: source.ownerType,
           ownerName: source.owner?.name ?? source.owner?.id ?? "",
           ownerUuid: source.owner?.uuid ?? "",
@@ -372,6 +411,27 @@ function collectActiveVentureModifiers(actor, facility) {
   });
 
   return { aggregate, trackedEffects, growConsumableEffects, debugEffects };
+}
+
+function collectActiveBastionDurationEffects(actor) {
+  const trackedEffects = [];
+  for (const effect of actor?.effects ?? []) {
+    if (!effect || effect.disabled || effect.isSuppressed) continue;
+    if (effectHasVentureModifierDefinition(effect)) continue;
+    const duration = getBastionDurationData(effect);
+    if (!duration?.consumePerTurn) continue;
+    if (duration.remainingTurns === null) continue;
+    trackedEffects.push({
+      effectId: effect.id,
+      remainingTurns: duration.remainingTurns,
+      durationPath: `${BASTION_DURATION_FLAG}.remainingTurns`,
+      ownerType: "actor",
+      ownerName: actor.name ?? actor.id ?? "",
+      ownerUuid: actor.uuid ?? "",
+      effectName: effect.name
+    });
+  }
+  return trackedEffects;
 }
 
 function queueModifierDurationUsage(usageMap, trackedEffects) {
@@ -435,7 +495,7 @@ async function decrementModifierDurations(usageMap) {
     } else {
       ownerEntry.updates.push({
         _id: tracked.effectId,
-        [VENTURE_MODIFIER_FLAG + ".remainingTurns"]: nextRemaining
+        [tracked.durationPath || `${VENTURE_MODIFIER_FLAG}.remainingTurns`]: nextRemaining
       });
     }
     byOwner.set(ownerKey, ownerEntry);
@@ -990,22 +1050,32 @@ export async function processActorVenturesFromBastionMessage(message) {
   const results = [];
   const turnId = message.uuid;
   const modifierDurationUsage = new Map();
+  const bastionDurationEffects = collectActiveBastionDurationEffects(actor);
+  queueModifierDurationUsage(modifierDurationUsage, bastionDurationEffects);
   for (const facility of facilities) {
     const result = await processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage);
     if (result) results.push(result);
   }
-
-  if (!results.length) return;
 
   if (wallet.dirty) {
     await actor.update({ "system.currency.gp": wallet.gp });
   }
 
   await decrementModifierDurations(modifierDurationUsage);
+  if (!results.length) {
+    moduleLog("Bastion venture processing complete", {
+      actor: actor.name,
+      facilitiesProcessed: 0,
+      gpAfter: wallet.gp,
+      bastionDurationsProcessed: bastionDurationEffects.length
+    });
+    return;
+  }
   moduleLog("Bastion venture processing complete", {
     actor: actor.name,
     facilitiesProcessed: results.length,
-    gpAfter: wallet.gp
+    gpAfter: wallet.gp,
+    bastionDurationsProcessed: bastionDurationEffects.length
   });
 
   if (game.settings.get(MODULE_ID, SETTINGS.postChatSummary)) {

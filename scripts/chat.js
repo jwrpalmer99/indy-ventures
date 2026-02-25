@@ -14,6 +14,9 @@ import {
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
 
+const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
+const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
+
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
 }
@@ -33,7 +36,13 @@ function parseModifierNumber(value, fallback = 0) {
 function parseModifierBoolean(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.toLowerCase() === "true";
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "off", ""].includes(normalized)) return false;
+    return fallback;
+  }
   return Boolean(value);
 }
 
@@ -345,7 +354,91 @@ function buildModifierChangeRows(modifier) {
   }));
 }
 
+function getBastionDurationFromEffectData(effectData) {
+  const fromFlags = foundry.utils.deepClone(foundry.utils.getProperty(effectData, BASTION_DURATION_FLAG) ?? {});
+  const fromChanges = {};
+  for (const change of effectData.changes ?? []) {
+    const key = String(change?.key ?? "");
+    if (!key.startsWith(BASTION_DURATION_CHANGE_PREFIX)) continue;
+    const subKey = key.slice(BASTION_DURATION_CHANGE_PREFIX.length);
+    foundry.utils.setProperty(fromChanges, subKey, change?.value);
+  }
+
+  const raw = foundry.utils.mergeObject(fromChanges, fromFlags, {
+    inplace: false,
+    recursive: true,
+    insertKeys: true
+  });
+  const expireNextTurn = parseModifierBoolean(raw.expireNextTurn, false);
+  const durationFormula = String(raw.durationFormula ?? "").trim();
+  const remainingTurnsRaw = raw.remainingTurns;
+  let remainingTurns = ((remainingTurnsRaw === undefined) || (remainingTurnsRaw === null) || (String(remainingTurnsRaw).trim() === ""))
+    ? null
+    : Math.max(parseModifierNumber(remainingTurnsRaw, 0), 0);
+  const consumePerTurn = parseModifierBoolean(raw.consumePerTurn, true);
+
+  if (expireNextTurn && (remainingTurns === null)) remainingTurns = 1;
+  if (!expireNextTurn && (remainingTurns === null) && !durationFormula) return null;
+
+  return { expireNextTurn, remainingTurns, durationFormula, consumePerTurn };
+}
+
+async function prepareBastionDurationRewardData(effectData, facility, actor) {
+  const duration = getBastionDurationFromEffectData(effectData);
+  if (!duration) return null;
+
+  if (duration.expireNextTurn) {
+    duration.expireNextTurn = true;
+    duration.remainingTurns = 1;
+    duration.consumePerTurn = true;
+    duration.durationFormula = "";
+  }
+
+  const hasRemainingTurns = (duration.remainingTurns !== null);
+  if (!hasRemainingTurns && duration.durationFormula) {
+    let durationRoll;
+    try {
+      durationRoll = await requestUserRoll({
+        formula: duration.durationFormula,
+        actor,
+        facilityName: facility.name,
+        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration")
+      });
+    } catch (error) {
+      throw new Error(game.i18n.format("INDYVENTURES.Errors.BoonDurationFormulaInvalid", {
+        formula: duration.durationFormula
+      }));
+    }
+
+    const turns = Math.max(Number.parseInt(durationRoll.total, 10) || 0, 1);
+    duration.remainingTurns = turns;
+    moduleLog("Boon reward effect: rolled bastion duration", {
+      facility: facility.name,
+      formula: duration.durationFormula,
+      total: durationRoll.total,
+      appliedTurns: turns
+    });
+  }
+
+  foundry.utils.setProperty(effectData, BASTION_DURATION_FLAG, duration);
+  const existingChanges = Array.isArray(effectData.changes) ? effectData.changes : [];
+  effectData.changes = existingChanges.filter(change => {
+    const key = String(change?.key ?? "");
+    if (key.startsWith(BASTION_DURATION_CHANGE_PREFIX)) return false;
+    return true;
+  });
+
+  moduleLog("Boon reward effect: prepared bastion duration", {
+    facility: facility.name,
+    effectName: effectData.name ?? null,
+    duration
+  });
+  return duration;
+}
+
 async function prepareActiveEffectRewardData(effectData, facility, actor) {
+  await prepareBastionDurationRewardData(effectData, facility, actor);
+
   const modifierPath = `flags.${MODULE_ID}.ventureModifier`;
   if (!foundry.utils.hasProperty(effectData, modifierPath)) return effectData;
 

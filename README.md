@@ -2,36 +2,72 @@
 
 `indy-ventures` adds venture-style business automation to D&D5e bastions (Foundry VTT v13, dnd5e 5.2.5+).
 
-## What it does
+## Features
 
 - Adds a **Venture Automation** section to each D&D5e `facility` item sheet.
-- Adds a `Venture Facilities` compendium pack with ready-to-drop special facilities:
+- Adds `Indy Ventures` compendium folder with:
+  - `Venture Facilities` item pack
+  - `Venture Macros` macro pack
+- Provides ready-to-drop special facilities:
   - `Venture Facility (Cramped)`
   - `Venture Facility (Roomy)`
   - `Venture Facility (Vast)`
-- Resolves venture profit/loss automatically whenever a bastion turn summary is created.
+- Resolves venture profit/loss on bastion turns (with prompted rolls).
 - Tracks per-facility venture state:
   - current profit die
   - success streak
   - venture treasury
   - failed status
+- Supports configurable boons with:
+  - per-turn purchase limits
+  - purchase windows (any turn / loss-or-break-even / profit-or-break-even)
+  - item rewards and Active Effect rewards
+- Supports venture modifier Active Effects (profit/loss die changes, growth threshold override, roll bonus, durations).
 - Posts a venture summary chat card with:
   - boon purchase buttons
   - claim treasury to character GP button
   - deficit coverage status
 
-## Configure a facility
+## Requirements
+
+- Foundry VTT v13
+- dnd5e 5.2.5+
+
+## Quick Setup
 
 1. Open a **special bastion facility**.
 2. In **Details**, scroll to **Venture Automation**.
-3. Enable venture automation and configure venture values.
-4. Add boons using one line per boon:
+3. Enable venture automation.
+4. Configure:
+   - Venture Name
+   - Profit Die
+   - Base Loss Die
+   - Loss Die Modifier
+   - Gold per Point (GP)
+   - Successes to Grow
+   - Auto-cover Deficits
+5. Click **Open Boon Editor** to manage boons (recommended).
 
-```text
-Name | Cost | Description
-```
+## Boon Rewards
 
-## Notes
+- Item reward UUID: grants a copy of the item to the actor.
+- ActiveEffect reward UUID:
+  - Venture modifier effects are applied to the venture facility.
+  - Non-venture effects are applied to the actor.
+- You can drag-drop Item/ActiveEffect documents into boon reward UUID fields.
+
+## Bastion Duration Flags (Non-venture Active Effects)
+
+Use these flags for effects that should tick on bastion turns:
+
+- `flags.indy-ventures.bastionDuration.expireNextTurn` (`true`/`false`)
+- `flags.indy-ventures.bastionDuration.remainingTurns` (number)
+- `flags.indy-ventures.bastionDuration.durationFormula` (roll formula)
+- `flags.indy-ventures.bastionDuration.consumePerTurn` (`true`/`false`)
+
+Legacy `flags.indy-ventures.bastionDuration.type` is no longer supported.
+
+## Notes / Behavior
 
 - One bastion turn is treated as one venture month.
 - Venture treasury is always used first to absorb losses.
@@ -40,3 +76,4 @@ Name | Cost | Description
 - When a venture fails at `d4` profit die with uncovered losses, it is disabled.
 - When venture automation is enabled on a facility, the standard facility order/crafting sections are hidden.
 - Venture-enabled facilities suppress hireling slots in the character bastion tab.
+- If a facility does not have **Enable Venture** checked, venture-specific fields are hidden.

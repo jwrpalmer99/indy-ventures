@@ -1,4 +1,5 @@
 import { registerChatHooks } from "./chat.js";
+import { registerDaeIntegration } from "./dae.js";
 import { processActorVenturesFromBastionMessage, registerCoveragePromptSocket } from "./engine.js";
 import { moduleWarn } from "./logger.js";
 import { registerSettings } from "./settings.js";
@@ -6,6 +7,7 @@ import { registerFacilitySheetHooks, registerModuleApi, registerModuleTemplates 
 
 Hooks.once("init", async () => {
   registerSettings();
+  registerDaeIntegration();
   await registerModuleTemplates();
   registerFacilitySheetHooks();
   registerChatHooks();

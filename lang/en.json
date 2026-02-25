@@ -195,5 +195,100 @@
       "Loss": "Venture Loss",
       "Duration": "Boon Duration"
     }
+  },
+  "dae": {
+    "fieldData": {
+      "fieldCategories": {
+        "IndyVentures": "Indy Ventures"
+      }
+    },
+    "IndyVentures": {
+      "fieldData": {
+        "flags": {
+          "indy-ventures": {
+            "ventureModifier": {
+              "enabled": {
+                "name": "Venture Modifier: Enabled",
+                "description": "If true, this venture modifier can affect venture turn processing."
+              },
+              "applyToAllVentures": {
+                "name": "Venture Modifier: Apply To All Ventures",
+                "description": "If true, this modifier applies to every venture on the actor."
+              },
+              "facilityId": {
+                "name": "Venture Modifier: Facility Scope",
+                "description": "Facility id/uuid/name this modifier targets when not applying globally."
+              },
+              "profitDieStep": {
+                "name": "Venture Modifier: Profit Die Step",
+                "description": "Shifts profit die up/down by die steps (for example +1 from d8 to d10)."
+              },
+              "profitDieOverride": {
+                "name": "Venture Modifier: Profit Die Override",
+                "description": "Forces profit die to this value (d4/d6/d8/d10/d12)."
+              },
+              "minProfitDie": {
+                "name": "Venture Modifier: Minimum Profit Die",
+                "description": "Prevents profit die from dropping below this value."
+              },
+              "lossDieStep": {
+                "name": "Venture Modifier: Loss Die Step",
+                "description": "Shifts loss die up/down by die steps."
+              },
+              "lossDieOverride": {
+                "name": "Venture Modifier: Loss Die Override",
+                "description": "Forces loss die to this value (d4/d6/d8/d10/d12)."
+              },
+              "maxLossDie": {
+                "name": "Venture Modifier: Maximum Loss Die",
+                "description": "Caps the computed loss die so it cannot be higher than this value."
+              },
+              "successThresholdOverride": {
+                "name": "Venture Modifier: Successes To Grow Override",
+                "description": "Overrides successes required for profit die growth (for example set to 1 for 'grow after one success')."
+              },
+              "profitRollBonus": {
+                "name": "Venture Modifier: Profit Roll Bonus",
+                "description": "Flat bonus added to the rolled profit result each venture turn."
+              },
+              "durationFormula": {
+                "name": "Venture Modifier: Duration Formula",
+                "description": "Roll formula used at purchase time to determine remaining bastion turns when no fixed turns are set."
+              },
+              "consumePerTurn": {
+                "name": "Venture Modifier: Consume Per Bastion Turn",
+                "description": "If true, remainingTurns decreases by 1 on each bastion turn."
+              },
+              "bastionDurationType": {
+                "name": "Venture Modifier: Special Duration Type",
+                "description": "Use 'nextBastionTurn' to make this modifier expire at the actor's next bastion turn."
+              },
+              "remainingTurns": {
+                "name": "Venture Modifier: Remaining Bastion Turns",
+                "description": "Number of bastion turns remaining before the modifier expires."
+              }
+            },
+            "bastionDuration": {
+              "expireNextTurn": {
+                "name": "Bastion Duration: Expire Next Bastion Turn",
+                "description": "Set to true to expire this non-venture Active Effect at the actor's next bastion turn."
+              },
+              "remainingTurns": {
+                "name": "Bastion Duration Remaining Turns",
+                "description": "Manual turn counter for non-venture Active Effects consumed each bastion turn."
+              },
+              "durationFormula": {
+                "name": "Bastion Duration Formula",
+                "description": "If set (and remaining turns is blank), this formula is rolled on reward grant to set remaining turns."
+              },
+              "consumePerTurn": {
+                "name": "Bastion Duration Consume Per Turn",
+                "description": "If true, non-venture Active Effect remaining turns are decremented each bastion turn."
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
