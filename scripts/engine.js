@@ -1260,10 +1260,13 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     if (!naturalOnePenaltyApplies) {
       state.streak += 1;
       if (state.streak >= effectiveSuccessThreshold) {
+        const previousDie = state.currentProfitDie;
         state.currentProfitDie = shiftDie(state.currentProfitDie, 1);
         state.streak = 0;
-        grew = true;
-        markModifiersForDeletion(modifierDurationUsage, effectModifiers.growConsumableEffects, "grown");
+        grew = dieIndex(state.currentProfitDie) > dieIndex(previousDie);
+        if (grew) {
+          markModifiersForDeletion(modifierDurationUsage, effectModifiers.growConsumableEffects, "grown");
+        }
       }
     } else {
       state.streak = 0;
