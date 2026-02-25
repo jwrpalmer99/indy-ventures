@@ -36,4 +36,32 @@ export function registerSettings() {
     type: Boolean,
     default: false
   });
+
+  game.settings.register(MODULE_ID, SETTINGS.coveragePromptTimeoutSeconds, {
+    name: "INDYVENTURES.Settings.CoveragePromptTimeoutSeconds.Name",
+    hint: "INDYVENTURES.Settings.CoveragePromptTimeoutSeconds.Hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 180,
+    range: {
+      min: 30,
+      max: 600,
+      step: 10
+    }
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.rollPromptTimeoutSeconds, {
+    name: "INDYVENTURES.Settings.RollPromptTimeoutSeconds.Name",
+    hint: "INDYVENTURES.Settings.RollPromptTimeoutSeconds.Hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 180,
+    range: {
+      min: 30,
+      max: 600,
+      step: 10
+    }
+  });
 }

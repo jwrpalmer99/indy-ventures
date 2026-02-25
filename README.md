@@ -30,6 +30,8 @@ The module integrates the idea of Ventures from https://blackcitadelrpg.com/runn
 - `Post Venture Summary Cards`: posts an Indy Ventures summary card after processing.
 - `Hide Venture Hirelings`: venture-enabled facilities hide hireling slots in the bastion tab.
 - `Enable Debug Logging`: writes detailed logs to browser console.
+- `Coverage Prompt Timeout (seconds)`: owner response timeout for deficit coverage prompts (default `180`).
+- `Roll Prompt Timeout (seconds)`: timeout for delegated owner profit/loss roll prompts before GM fallback (default `180`).
 
 ## Quick Start
 

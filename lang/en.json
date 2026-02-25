@@ -19,6 +19,14 @@
       "DebugLogging": {
         "Name": "Enable Debug Logging",
         "Hint": "If enabled, the module writes debug messages to the browser console."
+      },
+      "CoveragePromptTimeoutSeconds": {
+        "Name": "Coverage Prompt Timeout (seconds)",
+        "Hint": "How long to wait for an owner response to deficit coverage prompts before auto-declining."
+      },
+      "RollPromptTimeoutSeconds": {
+        "Name": "Roll Prompt Timeout (seconds)",
+        "Hint": "How long the GM waits for delegated owner profit/loss rolls before falling back to GM roll prompts."
       }
     },
     "Sheet": {
@@ -183,7 +191,7 @@
     },
     "Prompt": {
       "Title": "Cover Venture Deficit?",
-      "Content": "<p><strong>{decider}</strong>, how do you want to cover this venture loss?</p><p>Actor: <strong>{actor}</strong><br>Venture: <strong>{venture}</strong><br>Total Deficit: <strong>{deficit} gp</strong><br>From Venture Treasury: <strong>{treasuryCover} gp</strong><br>From Character Funds Needed: <strong>{characterCover} gp</strong><br>Total Inventory Currency Value: <strong>{availableInventoryGp} gp</strong></p>",
+      "Content": "<p><strong>{decider}</strong>, how do you want to cover this venture loss?</p><p>Actor: <strong>{actor}</strong><br>Venture: <strong>{venture}</strong><br>Total Deficit: <strong>{deficit} gp</strong><br>Current Venture Treasury: <strong>{currentTreasury} gp</strong><br>Total Inventory Currency Value: <strong>{availableInventoryGp} gp</strong></p>",
       "CoverFromGp": "Cover from GP",
       "CoverFromInventory": "Cover from Inventory",
       "CoverFromTreasury": "Cover from Treasury",

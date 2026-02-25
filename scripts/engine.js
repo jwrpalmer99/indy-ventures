@@ -17,8 +17,6 @@ import {
 import { moduleLog } from "./logger.js";
 
 const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
-const COVERAGE_TIMEOUT_MS = 60_000;
-const ROLL_TIMEOUT_MS = 120_000;
 const pendingCoverageRequests = new Map();
 const pendingRollRequests = new Map();
 const processedBastionMessages = new Set();
@@ -40,6 +38,28 @@ const CURRENCY_ORDER = ["pp", "gp", "ep", "sp", "cp"];
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
+}
+
+function clampTimeoutSeconds(value, fallbackSeconds = 180) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallbackSeconds;
+  return Math.min(Math.max(parsed, 30), 600);
+}
+
+function getCoverageTimeoutMs() {
+  const seconds = clampTimeoutSeconds(
+    game.settings?.get(MODULE_ID, SETTINGS.coveragePromptTimeoutSeconds),
+    180
+  );
+  return seconds * 1000;
+}
+
+function getRollTimeoutMs() {
+  const seconds = clampTimeoutSeconds(
+    game.settings?.get(MODULE_ID, SETTINGS.rollPromptTimeoutSeconds),
+    180
+  );
+  return seconds * 1000;
 }
 
 function buildBastionDedupKey(message, bastionData, actor) {
@@ -122,11 +142,12 @@ async function requestRollFromOwner({
   rollLabel
 }) {
   const requestId = foundry.utils.randomID();
+  const timeoutMs = getRollTimeoutMs();
   const response = await new Promise(resolve => {
     const timeout = setTimeout(() => {
       pendingRollRequests.delete(requestId);
       resolve({ timedOut: true });
-    }, ROLL_TIMEOUT_MS);
+    }, timeoutMs);
 
     pendingRollRequests.set(requestId, { resolve, timeout });
     emitSocket({
@@ -772,6 +793,7 @@ async function promptCoverageChoice({
   actorName,
   ventureName,
   deficit,
+  currentTreasury,
   treasuryCover,
   characterCover,
   treasuryAvailable,
@@ -790,6 +812,7 @@ async function promptCoverageChoice({
     actor: actorName,
     venture: ventureName,
     deficit,
+    currentTreasury: currentTreasury ?? treasuryAvailable ?? treasuryCover ?? 0,
     treasuryCover: treasuryCover ?? treasuryAvailable ?? 0,
     characterCover: characterCover ?? actorNeededAfterTreasury ?? 0,
     availableGp,
@@ -803,52 +826,68 @@ async function promptCoverageChoice({
   const coverFromInventoryLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromInventory");
   const declineLabel = game.i18n.localize("INDYVENTURES.Prompt.Decline");
 
+  const buttonEntries = [];
+  const addButton = (id, label, choice) => buttonEntries.push({ id, label, choice });
+
+  if (mode === "treasuryActor") {
+    if (canCoverWithTreasuryAndActor) {
+      const requiresActorFunds = Math.max(Number(actorNeededAfterTreasury ?? characterCover ?? 0) || 0, 0) > 0;
+      addButton(
+        "coverTreasuryAndActor",
+        requiresActorFunds ? coverFromTreasuryAndActorLabel : coverFromTreasuryLabel,
+        "treasuryActor"
+      );
+    }
+    if (canCoverWithActor) {
+      addButton("coverActor", coverFromActorLabel, "actor");
+    }
+  } else {
+    if (canCoverWithGp) {
+      addButton("coverGp", coverFromGpLabel, "gp");
+    }
+    if (canCoverWithInventory) {
+      addButton("coverInventory", coverFromInventoryLabel, "inventory");
+    }
+  }
+  addButton("decline", declineLabel, "decline");
+
+  let defaultButton = "decline";
+  if (mode === "treasuryActor") {
+    if (canCoverWithTreasuryAndActor) defaultButton = "coverTreasuryAndActor";
+    else if (canCoverWithActor) defaultButton = "coverActor";
+  } else if (canCoverWithGp) {
+    defaultButton = "coverGp";
+  } else if (canCoverWithInventory) {
+    defaultButton = "coverInventory";
+  }
+
+  if (foundry.applications?.api?.DialogV2?.wait) {
+    try {
+      const result = await foundry.applications.api.DialogV2.wait({
+        window: { title, resizable: true },
+        content,
+        rejectClose: false,
+        close: () => "decline",
+        buttons: buttonEntries.map(entry => ({
+          action: entry.id,
+          label: entry.label,
+          default: entry.id === defaultButton,
+          callback: () => entry.choice
+        }))
+      });
+      return String(result ?? "decline");
+    } catch (error) {
+      moduleLog("Coverage prompt: DialogV2.wait failed, falling back", {
+        error: String(error?.message ?? error)
+      });
+    }
+  }
+
   return new Promise(resolve => {
-    const buttons = {};
-
-    if (mode === "treasuryActor") {
-      if (canCoverWithTreasuryAndActor) {
-        const requiresActorFunds = Math.max(Number(actorNeededAfterTreasury ?? characterCover ?? 0) || 0, 0) > 0;
-        buttons.coverTreasuryAndActor = {
-          label: requiresActorFunds ? coverFromTreasuryAndActorLabel : coverFromTreasuryLabel,
-          callback: () => resolve("treasuryActor")
-        };
-      }
-      if (canCoverWithActor) {
-        buttons.coverActor = {
-          label: coverFromActorLabel,
-          callback: () => resolve("actor")
-        };
-      }
-    } else {
-      if (canCoverWithGp) {
-        buttons.coverGp = {
-          label: coverFromGpLabel,
-          callback: () => resolve("gp")
-        };
-      }
-      if (canCoverWithInventory) {
-        buttons.coverInventory = {
-          label: coverFromInventoryLabel,
-          callback: () => resolve("inventory")
-        };
-      }
-    }
-    buttons.decline = {
-      label: declineLabel,
-      callback: () => resolve("decline")
-    };
-
-    let defaultButton = "decline";
-    if (mode === "treasuryActor") {
-      if (canCoverWithTreasuryAndActor) defaultButton = "coverTreasuryAndActor";
-      else if (canCoverWithActor) defaultButton = "coverActor";
-    } else if (canCoverWithGp) {
-      defaultButton = "coverGp";
-    } else if (canCoverWithInventory) {
-      defaultButton = "coverInventory";
-    }
-
+    const buttons = Object.fromEntries(buttonEntries.map(entry => ([
+      entry.id,
+      { label: entry.label, callback: () => resolve(entry.choice) }
+    ])));
     new Dialog({
       title,
       content,
@@ -864,6 +903,7 @@ async function requestCoverageDecisionFromOwner({
   actor,
   facility,
   deficit,
+  currentTreasury,
   treasuryCover,
   characterCover,
   treasuryAvailable,
@@ -877,11 +917,12 @@ async function requestCoverageDecisionFromOwner({
   mode = "legacy"
 }) {
   const requestId = foundry.utils.randomID();
+  const timeoutMs = getCoverageTimeoutMs();
   const response = await new Promise(resolve => {
     const timeout = setTimeout(() => {
       pendingCoverageRequests.delete(requestId);
       resolve({ choice: "decline", timedOut: true, userId: targetUser.id });
-    }, COVERAGE_TIMEOUT_MS);
+    }, timeoutMs);
 
     pendingCoverageRequests.set(requestId, { resolve, timeout });
     emitSocket({
@@ -894,6 +935,7 @@ async function requestCoverageDecisionFromOwner({
       actorName: actor.name,
       ventureName: facility.name,
       deficit,
+      currentTreasury,
       treasuryCover,
       characterCover,
       treasuryAvailable,
@@ -947,6 +989,7 @@ async function maybeCoverDeficitTreasuryOrActor({
       actorName: actor.name,
       ventureName: facility.name,
       deficit,
+      currentTreasury: state.treasury,
       treasuryAvailable,
       actorNeededAfterTreasury,
       availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
@@ -963,6 +1006,7 @@ async function maybeCoverDeficitTreasuryOrActor({
       actor,
       facility,
       deficit,
+      currentTreasury: state.treasury,
       treasuryAvailable,
       actorNeededAfterTreasury,
       availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
@@ -1008,6 +1052,7 @@ async function maybeCoverCharacterDeficit({
   actor,
   facility,
   deficit,
+  currentTreasury,
   treasuryCover,
   characterCover,
   wallet,
@@ -1050,6 +1095,7 @@ async function maybeCoverCharacterDeficit({
       actorName: actor.name,
       ventureName: facility.name,
       deficit,
+      currentTreasury,
       treasuryCover,
       characterCover,
       availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
@@ -1077,6 +1123,7 @@ async function maybeCoverCharacterDeficit({
     actor,
     facility,
     deficit,
+    currentTreasury,
     treasuryCover,
     characterCover,
     availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
@@ -1215,6 +1262,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
         actor,
         facility,
         deficit,
+        currentTreasury: state.treasury,
         treasuryCover: treasuryCovered,
         characterCover: characterDeficit,
         wallet,
@@ -1237,6 +1285,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
         actor,
         facility,
         deficit,
+        currentTreasury: state.treasury,
         treasuryCover: 0,
         characterCover: deficit,
         wallet,
@@ -1593,6 +1642,7 @@ async function onCoveragePrompt(payload) {
     actorName: payload.actorName,
     ventureName: payload.ventureName,
     deficit: payload.deficit,
+    currentTreasury: payload.currentTreasury ?? payload.treasuryAvailable ?? payload.treasuryCover ?? 0,
     treasuryCover: payload.treasuryCover ?? 0,
     characterCover: payload.characterCover ?? 0,
     treasuryAvailable: payload.treasuryAvailable ?? 0,

@@ -12,5 +12,7 @@ export const SETTINGS = {
   integrateBastion: "integrateBastion",
   postChatSummary: "postChatSummary",
   hideVentureHirelings: "hideVentureHirelings",
-  debugLogging: "debugLogging"
+  debugLogging: "debugLogging",
+  coveragePromptTimeoutSeconds: "coveragePromptTimeoutSeconds",
+  rollPromptTimeoutSeconds: "rollPromptTimeoutSeconds"
 };
