@@ -1,5 +1,10 @@
 .indy-ventures-sheet .form-group.stacked .form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   align-items: stretch;
+  min-width: 0;
+  width: 100%;
 }
 
 .indy-ventures-sheet .form-fields.indy-boons-fields {
@@ -29,13 +34,14 @@
 .indy-ventures-sheet .indy-boons-table-wrap {
   width: 100%;
   max-width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .indy-ventures-sheet .indy-boons-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 }
 
 .indy-ventures-sheet .indy-boons-table th,
@@ -44,12 +50,34 @@
   padding: 0.3rem 0.45rem;
   border: 1px solid rgba(0, 0, 0, 0.14);
   vertical-align: middle;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-title {
+  width: 20%;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-cost {
+  width: 10%;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-reward {
+  width: 46%;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-count {
+  width: 12%;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-window {
+  width: 12%;
 }
 
 .indy-ventures-sheet .indy-boons-table th:last-child,
 .indy-ventures-sheet .indy-boons-table td:last-child {
   text-align: center;
-  width: 56px;
+  width: auto;
 }
 
 .indy-ventures-sheet .indy-boons-table tbody tr:nth-child(odd) {
@@ -60,6 +88,14 @@
   display: inline-flex;
   gap: 0.25rem;
   align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.indy-ventures-sheet .indy-boons-table .content-link .indy-content-link-label {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .indy-ventures-sheet .indy-boons-table .indy-boon-reward-icon {
@@ -67,6 +103,70 @@
   height: 1rem;
   object-fit: cover;
   border-radius: 2px;
+}
+
+.indy-ventures-sheet .indy-effects-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.indy-ventures-sheet .indy-effects-heading {
+  margin: 0 0 0.35rem;
+  line-height: 1.2;
+  font-family: var(--dnd5e-font-roboto, "Signika", sans-serif);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.indy-ventures-sheet .indy-effects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  table-layout: fixed;
+}
+
+.indy-ventures-sheet .indy-effects-table th,
+.indy-ventures-sheet .indy-effects-table td {
+  text-align: left;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-ventures-sheet .indy-effects-table .col-effect {
+  width: 45%;
+}
+
+.indy-ventures-sheet .indy-effects-table .col-modifier {
+  width: 22%;
+}
+
+.indy-ventures-sheet .indy-effects-table .col-duration {
+  width: 17%;
+}
+
+.indy-ventures-sheet .indy-effects-table .col-status {
+  width: 16%;
+}
+
+.indy-ventures-sheet .indy-effects-table tbody tr:nth-child(odd) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.indy-ventures-sheet .indy-effects-table .content-link {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.indy-ventures-sheet .indy-effects-table .content-link .indy-content-link-label {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .indy-ventures-sheet .indy-boon-title[title] {

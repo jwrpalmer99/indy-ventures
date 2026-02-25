@@ -52,11 +52,11 @@ function buildFacilityData(spec, sort) {
       [MODULE_ID]: {
         config: {
           enabled: true,
-          preset: "custom",
           ventureName: spec.name,
           profitDie: spec.profitDie,
           lossDie: "d6",
           lossModifier: 0,
+          gpPerPoint: 100,
           autoCoverLoss: false,
           successThreshold: 3,
           boonsText: ""

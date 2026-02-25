@@ -10,15 +10,6 @@
   </div>
 
   <div class="form-group">
-    <label>{{ localize "INDYVENTURES.Sheet.Preset" }}</label>
-    <div class="form-fields">
-      <select name="flags.indy-ventures.config.preset">
-        {{ selectOptions indyVentures.presetOptions selected=indyVentures.config.preset localize=false }}
-      </select>
-    </div>
-  </div>
-
-  <div class="form-group">
     <label>{{ localize "INDYVENTURES.Sheet.VentureName" }}</label>
     <div class="form-fields">
       <input type="text" name="flags.indy-ventures.config.ventureName" value="{{ indyVentures.config.ventureName }}">
@@ -52,6 +43,16 @@
     </div>
   </div>
 
+  <div class="form-group slim">
+    <label>{{ localize "INDYVENTURES.Sheet.GpPerPoint" }}</label>
+    <div class="form-fields">
+      <input type="number" min="0" step="1"
+             name="flags.indy-ventures.config.gpPerPoint"
+             value="{{ indyVentures.config.gpPerPoint }}">
+    </div>
+    <p class="hint">{{ localize "INDYVENTURES.Sheet.GpPerPointHint" }}</p>
+  </div>
+
   <div class="form-group">
     <label>{{ localize "INDYVENTURES.Sheet.SuccessThreshold" }}</label>
     <div class="form-fields">
@@ -77,6 +78,13 @@
       <textarea class="indy-boons-text" name="flags.indy-ventures.config.boonsText" rows="6" hidden>{{ indyVentures.config.boonsText }}</textarea>
       <div class="indy-boons-table-wrap">
         <table class="indy-boons-table">
+          <colgroup>
+            <col class="col-title">
+            <col class="col-cost">
+            <col class="col-reward">
+            <col class="col-count">
+            <col class="col-window">
+          </colgroup>
           <thead>
             <tr>
               <th>{{ localize "INDYVENTURES.Sheet.BoonTableTitle" }}</th>
@@ -104,7 +112,7 @@
                         {{#if rewardImg}}
                           <img class="indy-boon-reward-icon" src="{{ rewardImg }}" alt="{{ rewardName }}">
                         {{/if}}
-                        {{ rewardName }}
+                        <span class="indy-content-link-label">{{ rewardName }}</span>
                       </a>
                     {{else}}
                       {{ rewardName }}
@@ -119,6 +127,55 @@
             {{else}}
               <tr>
                 <td colspan="5" class="hint">{{ localize "INDYVENTURES.Sheet.BoonTableEmpty" }}</td>
+              </tr>
+            {{/if}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-group stacked">
+    <div class="form-fields">
+      <h4 class="indy-effects-heading">{{ localize "INDYVENTURES.Sheet.ActiveEffects" }}</h4>
+      <div class="indy-effects-table-wrap">
+        <table class="indy-effects-table">
+          <colgroup>
+            <col class="col-effect">
+            <col class="col-modifier">
+            <col class="col-duration">
+            <col class="col-status">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>{{ localize "INDYVENTURES.Sheet.ActiveEffectsName" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.ActiveEffectsSummary" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.ActiveEffectsRemaining" }}</th>
+              <th>{{ localize "INDYVENTURES.Sheet.ActiveEffectsStatus" }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#if indyVentures.activeEffects.length}}
+              {{#each indyVentures.activeEffects}}
+                <tr>
+                  <td>
+                    <a class="content-link" data-uuid="{{ uuid }}" data-link>
+                      <span class="indy-content-link-label">{{ name }}</span>
+                    </a>
+                  </td>
+                  <td>{{#if summary}}{{ summary }}{{else}}-{{/if}}</td>
+                  <td>{{ remainingTurnsDisplay }}</td>
+                  <td>
+                    {{ statusLabel }}
+                    {{#if disabled}}
+                      ({{ localize "INDYVENTURES.Sheet.ActiveEffectsDisabled" }})
+                    {{/if}}
+                  </td>
+                </tr>
+              {{/each}}
+            {{else}}
+              <tr>
+                <td colspan="4" class="hint">{{ localize "INDYVENTURES.Sheet.ActiveEffectsEmpty" }}</td>
               </tr>
             {{/if}}
           </tbody>

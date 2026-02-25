@@ -68,6 +68,8 @@ function getVentureModifierFromEffect(effect) {
     minProfitDie: String(raw.minProfitDie ?? "").trim(),
     lossDieStep: parseModifierNumber(raw.lossDieStep, 0),
     lossDieOverride: String(raw.lossDieOverride ?? "").trim(),
+    maxLossDie: String(raw.maxLossDie ?? "").trim(),
+    successThresholdOverride: Math.max(parseModifierNumber(raw.successThresholdOverride, 0), 0),
     profitRollBonus: parseModifierNumber(raw.profitRollBonus, 0),
     remainingTurns,
     consumePerTurn: parseModifierBoolean(raw.consumePerTurn, true),
@@ -89,6 +91,8 @@ function summarizeModifier(modifier) {
   if (modifier.minProfitDie) parts.push(`minimum profit die ${modifier.minProfitDie}`);
   if (modifier.lossDieStep) parts.push(`loss die step ${modifier.lossDieStep > 0 ? "+" : ""}${modifier.lossDieStep}`);
   if (modifier.lossDieOverride) parts.push(`loss die ${modifier.lossDieOverride}`);
+  if (modifier.maxLossDie) parts.push(`maximum loss die ${modifier.maxLossDie}`);
+  if (modifier.successThresholdOverride) parts.push(`successes to grow ${modifier.successThresholdOverride}`);
   if (modifier.profitRollBonus) parts.push(`profit bonus ${modifier.profitRollBonus > 0 ? "+" : ""}${modifier.profitRollBonus}`);
   if (modifier.bastionDurationType === "nextBastionTurn") {
     parts.push(game.i18n.localize("INDYVENTURES.EffectSummary.BastionDurationNextTurn"));
@@ -320,6 +324,8 @@ function buildModifierChangeRows(modifier) {
     "minProfitDie",
     "lossDieStep",
     "lossDieOverride",
+    "maxLossDie",
+    "successThresholdOverride",
     "profitRollBonus",
     "durationFormula",
     "consumePerTurn",

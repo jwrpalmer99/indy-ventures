@@ -97,6 +97,8 @@ function summarizeModifierEffect(modifier) {
   if (modifier.minProfitDie) parts.push(`minimum profit die ${modifier.minProfitDie}`);
   if (modifier.lossDieStep) parts.push(`loss die step ${modifier.lossDieStep > 0 ? "+" : ""}${modifier.lossDieStep}`);
   if (modifier.lossDieOverride) parts.push(`loss die ${modifier.lossDieOverride}`);
+  if (modifier.maxLossDie) parts.push(`maximum loss die ${modifier.maxLossDie}`);
+  if (modifier.successThresholdOverride) parts.push(`successes to grow ${modifier.successThresholdOverride}`);
   if (modifier.profitRollBonus) parts.push(`profit bonus ${modifier.profitRollBonus > 0 ? "+" : ""}${modifier.profitRollBonus}`);
   if (modifier.bastionDurationType === "nextBastionTurn") {
     parts.push("duration: 1 bastion turn");
@@ -116,9 +118,22 @@ function maxDie(first, second) {
   return secondIndex > firstIndex ? second : first;
 }
 
+function minDie(first, second) {
+  const firstIndex = dieIndex(first);
+  const secondIndex = dieIndex(second);
+  if (firstIndex === -1) return second;
+  if (secondIndex === -1) return first;
+  return secondIndex < firstIndex ? second : first;
+}
+
 function applyMinimumDie(die, minimumDie) {
   if (!minimumDie) return die;
   return maxDie(die, minimumDie);
+}
+
+function applyMaximumDie(die, maximumDie) {
+  if (!maximumDie) return die;
+  return minDie(die, maximumDie);
 }
 
 function getEffectModifierData(effect) {
@@ -148,6 +163,8 @@ function getEffectModifierData(effect) {
   if ((bastionDurationType === "nextBastionTurn") && (remainingTurns === null)) {
     remainingTurns = 1;
   }
+  const successThresholdRaw = parseEffectNumber(raw.successThresholdOverride, 0);
+  const successThresholdOverride = successThresholdRaw > 0 ? successThresholdRaw : null;
 
   return {
     effectId: effect.id,
@@ -159,6 +176,8 @@ function getEffectModifierData(effect) {
     minProfitDie: parseEffectDie(raw.minProfitDie),
     lossDieStep: parseEffectNumber(raw.lossDieStep, 0),
     lossDieOverride: parseEffectDie(raw.lossDieOverride),
+    maxLossDie: parseEffectDie(raw.maxLossDie),
+    successThresholdOverride,
     profitRollBonus: parseEffectNumber(raw.profitRollBonus, 0),
     bastionDurationType,
     remainingTurns,
@@ -215,6 +234,8 @@ function collectActiveVentureModifiers(actor, facility) {
     minProfitDie: null,
     lossDieStep: 0,
     lossDieOverride: null,
+    maxLossDie: null,
+    successThresholdOverride: null,
     profitRollBonus: 0
   };
   const trackedEffects = [];
@@ -277,6 +298,16 @@ function collectActiveVentureModifiers(actor, facility) {
       aggregate.profitRollBonus += modifier.profitRollBonus;
       if (modifier.profitDieOverride) aggregate.profitDieOverride = modifier.profitDieOverride;
       if (modifier.lossDieOverride) aggregate.lossDieOverride = modifier.lossDieOverride;
+      if (modifier.maxLossDie) {
+        aggregate.maxLossDie = aggregate.maxLossDie
+          ? minDie(aggregate.maxLossDie, modifier.maxLossDie)
+          : modifier.maxLossDie;
+      }
+      if (modifier.successThresholdOverride) {
+        aggregate.successThresholdOverride = aggregate.successThresholdOverride
+          ? Math.max(aggregate.successThresholdOverride, modifier.successThresholdOverride)
+          : modifier.successThresholdOverride;
+      }
       if (modifier.minProfitDie) {
         aggregate.minProfitDie = aggregate.minProfitDie
           ? maxDie(aggregate.minProfitDie, modifier.minProfitDie)
@@ -311,6 +342,8 @@ function collectActiveVentureModifiers(actor, facility) {
         minProfitDie: modifier.minProfitDie,
         lossDieStep: modifier.lossDieStep,
         lossDieOverride: modifier.lossDieOverride,
+        maxLossDie: modifier.maxLossDie,
+        successThresholdOverride: modifier.successThresholdOverride,
         profitRollBonus: modifier.profitRollBonus,
         skipped: false
       });
@@ -634,6 +667,12 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   if (effectModifiers.aggregate.lossDieOverride) {
     lossDie = effectModifiers.aggregate.lossDieOverride;
   }
+  lossDie = applyMaximumDie(lossDie, effectModifiers.aggregate.maxLossDie);
+
+  const effectiveSuccessThreshold = Math.max(
+    Number(effectModifiers.aggregate.successThresholdOverride ?? config.successThreshold) || config.successThreshold,
+    1
+  );
 
   const profitRoll = await rollDie(
     rolledProfitDie,
@@ -651,8 +690,9 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   const rawProfitRollTotal = Number(profitRoll.total);
   const profitRollBonus = effectModifiers.aggregate.profitRollBonus;
   const profitRollTotal = Math.max(rawProfitRollTotal + profitRollBonus, 0);
-  const income = profitRollTotal * 100;
-  const outgoings = Number(lossRoll.total) * 100;
+  const gpPerPoint = Math.max(Number(config.gpPerPoint ?? 100) || 0, 0);
+  const income = profitRollTotal * gpPerPoint;
+  const outgoings = Number(lossRoll.total) * gpPerPoint;
   const net = income - outgoings;
   state.lastTurnNet = net;
 
@@ -675,7 +715,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   if (net >= 0) {
     state.treasury += net;
     state.streak += 1;
-    if (state.streak >= config.successThreshold) {
+    if (state.streak >= effectiveSuccessThreshold) {
       state.currentProfitDie = shiftDie(state.currentProfitDie, 1);
       state.streak = 0;
       grew = true;
@@ -773,6 +813,9 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       baseProfitDie: config.profitDie,
       baseLossDie: config.lossDie,
       lossModifier: config.lossModifier,
+      gpPerPoint: config.gpPerPoint,
+      successThreshold: config.successThreshold,
+      effectiveSuccessThreshold,
       autoCoverLoss: config.autoCoverLoss
     },
     stateBefore,
@@ -823,6 +866,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     profitRollBonus,
     profitRollTotal,
     lossRollTotal: Number(lossRoll.total),
+    gpPerPoint,
     income,
     outgoings,
     net,

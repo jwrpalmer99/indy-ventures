@@ -30,6 +30,20 @@
       "path": "lang/en.json"
     }
   ],
+  "packFolders": [
+    {
+      "name": "Indy Ventures",
+      "sorting": "a",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      },
+      "packs": [
+        "venture-facilities",
+        "venture-macros"
+      ]
+    }
+  ],
   "packs": [
     {
       "name": "venture-facilities",
@@ -42,6 +56,16 @@
           "types": ["facility"]
         }
       },
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    },
+    {
+      "name": "venture-macros",
+      "label": "Venture Macros",
+      "type": "Macro",
+      "path": "packs/venture-macros.db",
       "ownership": {
         "PLAYER": "OBSERVER",
         "ASSISTANT": "OWNER"

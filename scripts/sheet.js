@@ -74,6 +74,11 @@ function buildVentureModifierSummary(modifier, effect = null) {
   const lossDieStep = asInt(modifier.lossDieStep, 0);
   if (lossDieStep) lines.push(`${game.i18n.localize("INDYVENTURES.EffectSummary.LossDieStep")}: ${lossDieStep > 0 ? "+" : ""}${lossDieStep}`);
   if (modifier.lossDieOverride) lines.push(`${game.i18n.localize("INDYVENTURES.EffectSummary.LossDieOverride")}: ${modifier.lossDieOverride}`);
+  if (modifier.maxLossDie) lines.push(`${game.i18n.localize("INDYVENTURES.EffectSummary.MaxLossDie")}: ${modifier.maxLossDie}`);
+  const successThresholdOverride = asInt(modifier.successThresholdOverride, 0);
+  if (successThresholdOverride > 0) {
+    lines.push(`${game.i18n.localize("INDYVENTURES.EffectSummary.SuccessThresholdOverride")}: ${successThresholdOverride}`);
+  }
 
   const profitRollBonus = asInt(modifier.profitRollBonus, 0);
   if (profitRollBonus) lines.push(`${game.i18n.localize("INDYVENTURES.EffectSummary.ProfitRollBonus")}: ${profitRollBonus > 0 ? "+" : ""}${profitRollBonus}`);
@@ -202,6 +207,14 @@ function asNonNegativeIntegerOrNull(value) {
   return Math.max(parsed, 0);
 }
 
+function asPositiveIntegerOrNull(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const parsed = Number.parseInt(text, 10);
+  if (!Number.isFinite(parsed) || (parsed < 1)) return null;
+  return parsed;
+}
+
 function escapeHtmlAttribute(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -266,6 +279,18 @@ function buildModifierBuilderDialogContent(initialName) {
           </div>
         </div>
         <div class="form-group">
+          <label>${game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderMaxLossDie")}</label>
+          <div class="form-fields">
+            <select name="maxLossDie">${dieOptions}</select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>${game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderSuccessThresholdOverride")}</label>
+          <div class="form-fields">
+            <input type="number" name="successThresholdOverride" min="1" step="1" />
+          </div>
+        </div>
+        <div class="form-group">
           <label>${game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderProfitRollBonus")}</label>
           <div class="form-fields">
             <input type="number" name="profitRollBonus" step="1" value="0" />
@@ -314,6 +339,8 @@ function readModifierBuilderDataFromForm(form) {
     minProfitDie: normalizeDieSelectValue(data.get("minProfitDie")),
     lossDieStep: asIntegerOr(data.get("lossDieStep"), 0),
     lossDieOverride: normalizeDieSelectValue(data.get("lossDieOverride")),
+    maxLossDie: normalizeDieSelectValue(data.get("maxLossDie")),
+    successThresholdOverride: asPositiveIntegerOrNull(data.get("successThresholdOverride")),
     profitRollBonus: asIntegerOr(data.get("profitRollBonus"), 0),
     durationMode: String(data.get("durationMode") ?? "standard").trim() || "standard",
     remainingTurns: asNonNegativeIntegerOrNull(data.get("remainingTurns")),
@@ -352,6 +379,8 @@ function readModifierBuilderDataFromLegacyHtml(html) {
     minProfitDie: normalizeDieSelectValue(read("minProfitDie")),
     lossDieStep: asIntegerOr(read("lossDieStep"), 0),
     lossDieOverride: normalizeDieSelectValue(read("lossDieOverride")),
+    maxLossDie: normalizeDieSelectValue(read("maxLossDie")),
+    successThresholdOverride: asPositiveIntegerOrNull(read("successThresholdOverride")),
     profitRollBonus: asIntegerOr(read("profitRollBonus"), 0),
     durationMode: String(read("durationMode") ?? "standard").trim() || "standard",
     remainingTurns: asNonNegativeIntegerOrNull(read("remainingTurns")),
@@ -372,6 +401,8 @@ function buildModifierChangeRows(modifier) {
     "minProfitDie",
     "lossDieStep",
     "lossDieOverride",
+    "maxLossDie",
+    "successThresholdOverride",
     "profitRollBonus",
     "durationFormula",
     "consumePerTurn",
@@ -403,6 +434,8 @@ function buildVentureModifierData(input, facilityId = "") {
   if (input.minProfitDie) modifier.minProfitDie = input.minProfitDie;
   if (input.lossDieStep) modifier.lossDieStep = input.lossDieStep;
   if (input.lossDieOverride) modifier.lossDieOverride = input.lossDieOverride;
+  if (input.maxLossDie) modifier.maxLossDie = input.maxLossDie;
+  if (input.successThresholdOverride) modifier.successThresholdOverride = input.successThresholdOverride;
   if (input.profitRollBonus) modifier.profitRollBonus = input.profitRollBonus;
   const durationMode = String(input.durationMode ?? "standard").trim().toLowerCase();
   if (durationMode === "nextbastionturn") {
@@ -423,6 +456,8 @@ function hasMeaningfulVentureModifier(input) {
     || input.minProfitDie
     || input.lossDieStep
     || input.lossDieOverride
+    || input.maxLossDie
+    || input.successThresholdOverride
     || input.profitRollBonus
   );
 }
@@ -678,9 +713,7 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     const boonName = String(row.querySelector(".boon-name")?.value ?? "").trim();
-    const initialName = boonName
-      ? `${game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderDefaultNamePrefix")}: ${boonName}`
-      : game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderDefaultName");
+    const initialName = boonName || game.i18n.localize("INDYVENTURES.BoonEditor.ModifierBuilderDefaultName");
     const input = await promptModifierEffectConfig(initialName);
     if (!input) {
       moduleLog("Boon modifier builder: no input returned from dialog", {
@@ -868,7 +901,7 @@ function bindBoonTableLinks(sheet, html) {
   if (sheet?.document?.documentName !== "Item" || sheet.document.type !== "facility") return;
 
   const root = resolveHtmlRoot(sheet, html);
-  const links = root?.querySelectorAll?.(".indy-boons-table [data-uuid]");
+  const links = root?.querySelectorAll?.(".indy-ventures-sheet [data-uuid]");
   if (!links?.length) return;
 
   for (const link of links) {

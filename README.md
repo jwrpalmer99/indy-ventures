@@ -9,9 +9,6 @@
   - `Venture Facility (Cramped)`
   - `Venture Facility (Roomy)`
   - `Venture Facility (Vast)`
-- Supports venture presets based on the article examples:
-  - `Mangy Minotaur Tavern`
-  - `Cult of the Minotaur`
 - Resolves venture profit/loss automatically whenever a bastion turn summary is created.
 - Tracks per-facility venture state:
   - current profit die
@@ -27,7 +24,7 @@
 
 1. Open a **special bastion facility**.
 2. In **Details**, scroll to **Venture Automation**.
-3. Enable venture automation and choose a preset or custom values.
+3. Enable venture automation and configure venture values.
 4. Add boons using one line per boon:
 
 ```text
