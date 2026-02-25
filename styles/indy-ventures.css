@@ -7,6 +7,10 @@
   width: 100%;
 }
 
+.indy-ventures-sheet:not(:has(input[name="flags.indy-ventures.config.enabled"]:checked)) .indy-venture-config-body {
+  display: none;
+}
+
 .indy-ventures-sheet .form-fields.indy-boons-fields {
   display: flex;
   flex-direction: column;
@@ -21,14 +25,6 @@
   text-transform: uppercase;
   letter-spacing: 0.02em;
   min-height: 2rem;
-}
-
-.indy-ventures-sheet .indy-boons-text {
-  width: 100%;
-  min-height: 7rem;
-  font-family: monospace;
-  line-height: 1.3;
-  resize: vertical;
 }
 
 .indy-ventures-sheet .indy-boons-table-wrap {
@@ -112,8 +108,8 @@
 }
 
 .indy-ventures-sheet .indy-effects-heading {
-  margin: 0 0 0.35rem;
-  line-height: 1.2;
+  margin: 0 0 0.01rem;
+  line-height: 0.4;
   font-family: var(--dnd5e-font-roboto, "Signika", sans-serif);
   font-size: 1rem;
   font-weight: 700;

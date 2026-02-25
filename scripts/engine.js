@@ -239,6 +239,7 @@ function collectActiveVentureModifiers(actor, facility) {
     profitRollBonus: 0
   };
   const trackedEffects = [];
+  const growConsumableEffects = [];
   const debugEffects = [];
 
   const sources = getModifierEffectSources(actor, facility);
@@ -320,7 +321,18 @@ function collectActiveVentureModifiers(actor, facility) {
           remainingTurns: modifier.remainingTurns,
           ownerType: source.ownerType,
           ownerName: source.owner?.name ?? source.owner?.id ?? "",
-          ownerUuid: source.owner?.uuid ?? ""
+          ownerUuid: source.owner?.uuid ?? "",
+          effectName: effect.name
+        });
+      }
+
+      if (modifier.successThresholdOverride) {
+        growConsumableEffects.push({
+          effectId: modifier.effectId,
+          ownerType: source.ownerType,
+          ownerName: source.owner?.name ?? source.owner?.id ?? "",
+          ownerUuid: source.owner?.uuid ?? "",
+          effectName: effect.name
         });
       }
 
@@ -359,7 +371,7 @@ function collectActiveVentureModifiers(actor, facility) {
     modifierEffectsApplied: debugEffects.filter(effect => !effect.skipped).length
   });
 
-  return { aggregate, trackedEffects, debugEffects };
+  return { aggregate, trackedEffects, growConsumableEffects, debugEffects };
 }
 
 function queueModifierDurationUsage(usageMap, trackedEffects) {
@@ -371,11 +383,40 @@ function queueModifierDurationUsage(usageMap, trackedEffects) {
   }
 }
 
+function markModifiersForDeletion(usageMap, trackedEffects, reason = "") {
+  for (const tracked of trackedEffects) {
+    if (!tracked?.effectId || !tracked?.ownerUuid) continue;
+    const key = `${tracked.ownerUuid}::${tracked.effectId}`;
+    const existing = usageMap.get(key) ?? tracked;
+    usageMap.set(key, {
+      ...existing,
+      ...tracked,
+      forceDelete: true,
+      deleteReason: reason || existing.deleteReason || "unspecified"
+    });
+  }
+}
+
 async function decrementModifierDurations(usageMap) {
   if (!usageMap?.size) return;
 
   const byOwner = new Map();
   for (const tracked of usageMap.values()) {
+    if (tracked.forceDelete) {
+      const ownerKey = tracked.ownerUuid;
+      const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], debug: [] };
+      ownerEntry.debug.push({
+        id: tracked.effectId,
+        ownerType: tracked.ownerType,
+        ownerName: tracked.ownerName,
+        action: "force-delete",
+        reason: tracked.deleteReason ?? "unspecified"
+      });
+      ownerEntry.deletes.push(tracked.effectId);
+      byOwner.set(ownerKey, ownerEntry);
+      continue;
+    }
+
     const currentRemaining = Math.max(parseEffectNumber(tracked.remainingTurns, 0), 0);
     if (currentRemaining <= 0) continue;
     const nextRemaining = Math.max(currentRemaining - 1, 0);
@@ -719,6 +760,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       state.currentProfitDie = shiftDie(state.currentProfitDie, 1);
       state.streak = 0;
       grew = true;
+      markModifiersForDeletion(modifierDurationUsage, effectModifiers.growConsumableEffects, "grown");
     }
   } else {
     deficit = Math.abs(net);
@@ -804,6 +846,9 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
         consumePerTurn: Boolean(effect.consumePerTurn)
       };
     });
+  const consumedOnGrowEffects = grew
+    ? effectModifiers.growConsumableEffects.map(effect => effect.effectName).filter(Boolean)
+    : [];
 
   moduleLog("Venture turn resolved", {
     actor: actor.name,
@@ -849,7 +894,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       treasury: state.treasury,
       failed: state.failed
     },
-    modifierEffects
+    modifierEffects,
+    consumedOnGrowEffects
   });
 
   await updateFacilityVenture(facility, config, state);
