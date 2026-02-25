@@ -20,9 +20,7 @@ const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
 const pendingCoverageRequests = new Map();
 const pendingRollRequests = new Map();
 const processedBastionMessages = new Set();
-const recentBastionProcessingByActor = new Map();
-const DUPLICATE_TURN_WINDOW_MS = 10_000;
-const ACTOR_PROCESS_LOCK_WINDOW_MS = 15_000;
+const processedActorTurnKeys = new Set();
 const VENTURE_MODIFIER_FLAG = `flags.${MODULE_ID}.ventureModifier`;
 const VENTURE_MODIFIER_CHANGE_PREFIX = `${VENTURE_MODIFIER_FLAG}.`;
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
@@ -62,7 +60,7 @@ function getRollTimeoutMs() {
   return seconds * 1000;
 }
 
-function buildBastionDedupKey(message, bastionData, actor) {
+function buildBastionDedupKey(message, bastionData) {
   const stableTurnId = String(
     bastionData?.turnId
     ?? bastionData?.turn?.id
@@ -70,20 +68,7 @@ function buildBastionDedupKey(message, bastionData, actor) {
     ?? ""
   ).trim();
   if (stableTurnId) return `turn:${stableTurnId}`;
-
-  const orders = Array.isArray(bastionData?.orders) ? bastionData.orders : [];
-  const ordersSignature = orders
-    .map(order => ({
-      item: String(order?.itemId ?? order?.itemUuid ?? order?.item ?? ""),
-      activity: String(order?.activityId ?? order?.activity ?? ""),
-      operation: String(order?.operation ?? ""),
-      value: String(order?.value ?? "")
-    }))
-    .map(entry => `${entry.item}|${entry.activity}|${entry.operation}|${entry.value}`)
-    .sort()
-    .join("||");
-  const contentSignature = String(message?.content ?? "").replace(/\s+/g, " ").trim();
-  return `fallback:${actor?.uuid ?? actor?.id ?? "actor"}:${ordersSignature}:${contentSignature}`;
+  return "";
 }
 
 async function requestLocalUserRoll({ formula, actor, facilityName, rollLabel }) {
@@ -775,12 +760,28 @@ function emitSocket(payload) {
 }
 
 function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
+  const purchasesTurnId = String(state?.boonPurchasesTurnId ?? "");
+  const stateTurnId = String(state?.turnId ?? "");
+  if (!purchasesTurnId || !stateTurnId || (purchasesTurnId !== stateTurnId)) return 0;
   const key = String(boonKey ?? "").trim();
   if (key) {
     const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
     return Math.max(Number.isFinite(fromKey) ? fromKey : 0, 0);
   }
   return Math.max(Number(state?.boonPurchases?.[String(boonIndex)] ?? 0) || 0, 0);
+}
+
+function buildGroupLimitMap(boons = []) {
+  const map = new Map();
+  for (const boon of boons) {
+    const groupKey = buildBoonGroupKey(boon);
+    if (!groupKey) continue;
+    const limit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
+    if (limit === null) continue;
+    const existing = map.get(groupKey);
+    map.set(groupKey, existing === undefined ? limit : Math.min(existing, limit));
+  }
+  return map;
 }
 
 function getPreferredCoverageUser(actor) {
@@ -1157,6 +1158,10 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
 
   if (turnId && (state.turnId !== turnId)) {
     state.turnId = turnId;
+    state.boonPurchasesTurnId = turnId;
+    state.boonPurchases = {};
+  } else if (state.turnId && (state.boonPurchasesTurnId !== state.turnId)) {
+    state.boonPurchasesTurnId = state.turnId;
     state.boonPurchases = {};
   }
 
@@ -1351,12 +1356,16 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     state.streak = 0;
   }
 
-  const boons = parseBoonsFromConfig(config).map((boon, index) => {
+  const parsedBoons = parseBoonsFromConfig(config);
+  const groupLimitMap = buildGroupLimitMap(parsedBoons);
+  const boons = parsedBoons.map((boon, index) => {
     const reward = resolveRewardDisplayData(boon);
     const boonKey = buildBoonKey(boon);
     const group = String(boon.group ?? "").trim();
     const groupKey = buildBoonGroupKey(boon);
-    const groupPerTurnLimit = parseBoonPerTurnLimit(boon.groupPerTurnLimit, null);
+    const baseGroupPerTurnLimit = parseBoonPerTurnLimit(boon.groupPerTurnLimit, null);
+    const mappedGroupPerTurnLimit = groupKey ? groupLimitMap.get(groupKey) : undefined;
+    const groupPerTurnLimit = (mappedGroupPerTurnLimit === undefined) ? baseGroupPerTurnLimit : mappedGroupPerTurnLimit;
     const purchasedThisTurn = getBoonPurchasesThisTurn(state, index, boonKey);
     const purchasedInGroupThisTurn = groupKey ? getBoonPurchasesThisTurn(state, index, groupKey) : 0;
     const perTurnLimit = parseBoonPerTurnLimit(boon.perTurnLimit, 1);
@@ -1556,32 +1565,21 @@ export async function processActorVenturesFromBastionMessage(message) {
 
   const actor = message.getAssociatedActor?.() ?? game.actors.get(message.speaker?.actor);
   if (!actor || actor.type !== "character") return;
-  const now = Date.now();
 
-  const actorLock = recentBastionProcessingByActor.get(actor.uuid);
-  if (actorLock && ((now - actorLock.at) <= ACTOR_PROCESS_LOCK_WINDOW_MS)) {
-    moduleLog("Bastion venture processing skipped (actor lock window)", {
-      actor: actor.name,
-      actorUuid: actor.uuid,
-      previousKey: actorLock.key,
-      incomingMessage: messageKey,
-      lockWindowMs: ACTOR_PROCESS_LOCK_WINDOW_MS
-    });
-    return;
+  const dedupKey = buildBastionDedupKey(message, bastionData);
+  if (dedupKey) {
+    const actorTurnKey = `${actor.uuid}::${dedupKey}`;
+    if (processedActorTurnKeys.has(actorTurnKey)) {
+      moduleLog("Bastion venture processing skipped (duplicate actor turn id detected)", {
+        actor: actor.name,
+        actorUuid: actor.uuid,
+        dedupKey,
+        incomingMessage: messageKey
+      });
+      return;
+    }
+    processedActorTurnKeys.add(actorTurnKey);
   }
-
-  const dedupKey = buildBastionDedupKey(message, bastionData, actor);
-  const recent = recentBastionProcessingByActor.get(actor.uuid);
-  if (recent && (recent.key === dedupKey) && ((now - recent.at) <= DUPLICATE_TURN_WINDOW_MS)) {
-    moduleLog("Bastion venture processing skipped (duplicate actor turn detected)", {
-      actor: actor.name,
-      actorUuid: actor.uuid,
-      dedupKey,
-      windowMs: DUPLICATE_TURN_WINDOW_MS
-    });
-    return;
-  }
-  recentBastionProcessingByActor.set(actor.uuid, { key: dedupKey, at: now });
 
   processedBastionMessages.add(messageKey);
 

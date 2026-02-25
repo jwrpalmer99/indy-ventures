@@ -18,6 +18,7 @@ import { moduleLog } from "./logger.js";
 
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
 const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
+const boonPurchaseLocks = new Map();
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
@@ -263,6 +264,9 @@ function getBoonPurchaseWhenLabel(mode) {
 }
 
 function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
+  const purchasesTurnId = String(state?.boonPurchasesTurnId ?? "");
+  const stateTurnId = String(state?.turnId ?? "");
+  if (!purchasesTurnId || !stateTurnId || (purchasesTurnId !== stateTurnId)) return 0;
   const key = String(boonKey ?? "").trim();
   if (key) {
     const fromKey = Number(state?.boonPurchases?.[key] ?? 0);
@@ -290,12 +294,27 @@ function resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey = "") {
   return { boon: null, index: requestedIndex, matchedByKey: false };
 }
 
-function withBoonAvailability(boon, state, boonIndex, turnNet = null) {
+function buildGroupLimitMap(boons = []) {
+  const map = new Map();
+  for (const boon of boons) {
+    const groupKey = buildBoonGroupKey(boon);
+    if (!groupKey) continue;
+    const limit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
+    if (limit === null) continue;
+    const existing = map.get(groupKey);
+    map.set(groupKey, existing === undefined ? limit : Math.min(existing, limit));
+  }
+  return map;
+}
+
+function withBoonAvailability(boon, state, boonIndex, turnNet = null, groupLimitMap = null) {
   const reward = resolveRewardDisplayFromBoon(boon);
   const boonKey = String(boon?.key ?? buildBoonKey(boon));
   const group = String(boon?.group ?? "").trim();
   const groupKey = String(boon?.groupKey ?? buildBoonGroupKey(boon));
-  const groupPerTurnLimit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
+  const baseGroupPerTurnLimit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
+  const mappedGroupPerTurnLimit = groupKey && (groupLimitMap instanceof Map) ? groupLimitMap.get(groupKey) : undefined;
+  const groupPerTurnLimit = (mappedGroupPerTurnLimit === undefined) ? baseGroupPerTurnLimit : mappedGroupPerTurnLimit;
   const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
   const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
   const purchasedThisTurn = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
@@ -613,160 +632,224 @@ async function promptClaimAmount(maxAmount, ventureName) {
 }
 
 async function onPurchaseBoon(message, button) {
-  const facility = await fromUuid(button.dataset.facilityUuid);
-  if (!facility || facility.documentName !== "Item") return;
-  const actor = facility.actor;
-  if (!canManageVenture(actor)) {
-    ui.notifications.warn("INDYVENTURES.Errors.NotOwner", { localize: true });
-    return;
-  }
+  const buttonData = foundry.utils.deepClone(button?.dataset ?? {});
+  const facilityUuid = String(buttonData.facilityUuid ?? "").trim();
+  if (!facilityUuid) return;
 
-  const requestedIndex = Number(button.dataset.boonIndex);
-  if (!Number.isFinite(requestedIndex)) return;
-  const requestedKey = String(button.dataset.boonKey ?? "").trim();
-
-  const config = getFacilityConfig(facility);
-  const state = getFacilityState(facility, config);
-  const boons = parseBoonsFromConfig(config);
-  const resolved = resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey);
-  const boonIndex = resolved.index;
-  const boon = resolved.boon;
-  if (!boon) {
-    moduleLog("Boon purchase blocked: boon entry no longer matches chat summary", {
-      actor: actor.name,
-      facility: facility.name,
-      requestedIndex,
-      requestedKey
-    });
-    ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
-    return;
-  }
-  if (resolved.matchedByKey) {
-    moduleLog("Boon purchase: resolved index mismatch by key", {
-      actor: actor.name,
-      facility: facility.name,
-      requestedIndex,
-      resolvedIndex: boonIndex,
-      requestedKey
-    });
-  }
-  const actorUuid = message.getFlag(MODULE_ID, "actorUuid");
-  const results = foundry.utils.deepClone(message.getFlag(MODULE_ID, "results")) ?? [];
-  const summary = results.find(r => r.facilityUuid === facility.uuid);
-  const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
-
-  const turnId = message.getFlag(MODULE_ID, "sourceMessageUuid") ?? "";
-  if (!state.turnId && turnId) {
-    state.turnId = turnId;
-    state.boonPurchases = {};
-  } else if (turnId && state.turnId && (state.turnId !== turnId)) {
-    ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
-    return;
-  }
-  const purchaseState = withBoonAvailability(boon, state, boonIndex, turnNet);
-  if (!purchaseState.purchasable) {
-    const key = purchaseState.blockedByWindow
-      ? "INDYVENTURES.Errors.BoonPurchaseWindowBlocked"
-      : (purchaseState.blockedByGroupLimit
-          ? "INDYVENTURES.Errors.BoonGroupTurnLimitReached"
-          : (purchaseState.affordable ? "INDYVENTURES.Errors.BoonTurnLimitReached" : "INDYVENTURES.Errors.NotEnoughTreasury"));
-    moduleLog("Boon purchase blocked", {
-      actor: actor.name,
-      facility: facility.name,
-      boon: boon.name,
-      boonIndex,
-      requestedIndex,
-      requestedKey,
-      stateTurnId: state.turnId,
-      messageTurnId: turnId,
-      affordable: purchaseState.affordable,
-      purchasedThisTurn: purchaseState.purchasedThisTurn,
-      perTurnLimit: purchaseState.perTurnLimit,
-      group: purchaseState.group,
-      groupPerTurnLimit: purchaseState.groupPerTurnLimit,
-      purchasedInGroupThisTurn: purchaseState.purchasedInGroupThisTurn,
-      purchaseWhen: purchaseState.purchaseWhen,
-      purchaseWhenAllowed: purchaseState.purchaseWhenAllowed
-    });
-    ui.notifications.warn(game.i18n.format(key, {
-      boon: boon.name,
-      limit: purchaseState.blockedByGroupLimit
-        ? (purchaseState.groupPerTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"))
-        : (purchaseState.perTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited")),
-      purchased: purchaseState.blockedByGroupLimit
-        ? purchaseState.purchasedInGroupThisTurn
-        : purchaseState.purchasedThisTurn,
-      mode: purchaseState.purchaseWhenLabel,
-      group: purchaseState.group || "-"
-    }));
-    return;
-  }
-
-  const boonKey = String(purchaseState.key ?? buildBoonKey(boon));
-  const groupKey = String(purchaseState.groupKey ?? "");
-  const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
-  const previousGroupPurchaseCount = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
-  const previousTreasury = state.treasury;
-  state.treasury -= boon.cost;
-  state.boonPurchases = {
-    ...(state.boonPurchases ?? {}),
-    [boonKey]: previousPurchaseCount + 1,
-    [String(boonIndex)]: previousPurchaseCount + 1
-  };
-  if (groupKey) state.boonPurchases[groupKey] = previousGroupPurchaseCount + 1;
-  await updateFacilityVenture(facility, config, state);
-  moduleLog("Boon purchase: funds reserved", {
-    actor: actor.name,
-    facility: facility.name,
-    boon: boon.name,
-    cost: boon.cost,
-    treasuryBefore: previousTreasury,
-    treasuryAfter: state.treasury,
-    purchasedThisTurnBefore: previousPurchaseCount,
-    purchasedThisTurnAfter: state.boonPurchases[boonKey],
-    rewardUuid: boon.rewardUuid || null
-  });
-
-  let rewardName = null;
-  if (boon.rewardUuid) {
-    try {
-      rewardName = await grantBoonReward(actor, facility, boon);
-    } catch (error) {
-      state.treasury = previousTreasury;
-      if (previousPurchaseCount > 0) {
-        state.boonPurchases[boonKey] = previousPurchaseCount;
-        state.boonPurchases[String(boonIndex)] = previousPurchaseCount;
-      } else {
-        delete state.boonPurchases[boonKey];
-        delete state.boonPurchases[String(boonIndex)];
-      }
-      if (groupKey) {
-        if (previousGroupPurchaseCount > 0) state.boonPurchases[groupKey] = previousGroupPurchaseCount;
-        else delete state.boonPurchases[groupKey];
-      }
-      await updateFacilityVenture(facility, config, state);
-      ui.notifications.error(error.message);
+  const runPurchase = async () => {
+    const facility = await fromUuid(facilityUuid);
+    if (!facility || facility.documentName !== "Item") return;
+    const actor = facility.actor;
+    if (!canManageVenture(actor)) {
+      ui.notifications.warn("INDYVENTURES.Errors.NotOwner", { localize: true });
       return;
     }
-  }
 
-  const notificationKey = rewardName
-    ? "INDYVENTURES.Notifications.BoonPurchasedReward"
-    : "INDYVENTURES.Notifications.BoonPurchased";
-  ui.notifications.info(game.i18n.format(notificationKey, {
-    boon: boon.name,
-    venture: config.ventureName || facility.name,
-    reward: rewardName
-  }));
+    const requestedIndex = Number(buttonData.boonIndex);
+    if (!Number.isFinite(requestedIndex)) return;
+    const requestedKey = String(buttonData.boonKey ?? "").trim();
 
-  if (summary) {
-    summary.treasury = state.treasury;
-    summary.lastTurnNet = turnNet;
-    summary.boons = summary.boons.map((entry, index) => {
-      return withBoonAvailability(entry, state, index, turnNet);
+    const config = getFacilityConfig(facility);
+    const state = getFacilityState(facility, config);
+    const boons = parseBoonsFromConfig(config);
+    const groupLimitMap = buildGroupLimitMap(boons);
+    const resolved = resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey);
+    const boonIndex = resolved.index;
+    const boon = resolved.boon;
+    if (!boon) {
+      moduleLog("Boon purchase blocked: boon entry no longer matches chat summary", {
+        actor: actor.name,
+        facility: facility.name,
+        requestedIndex,
+        requestedKey
+      });
+      ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
+      return;
+    }
+    if (resolved.matchedByKey) {
+      moduleLog("Boon purchase: resolved index mismatch by key", {
+        actor: actor.name,
+        facility: facility.name,
+        requestedIndex,
+        resolvedIndex: boonIndex,
+        requestedKey
+      });
+    }
+    const actorUuid = message.getFlag(MODULE_ID, "actorUuid");
+    const results = foundry.utils.deepClone(message.getFlag(MODULE_ID, "results")) ?? [];
+    const summary = results.find(r => r.facilityUuid === facility.uuid);
+    const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
+
+    const turnId = message.getFlag(MODULE_ID, "sourceMessageUuid") ?? "";
+    if (!state.turnId && turnId) {
+      state.turnId = turnId;
+      state.boonPurchasesTurnId = turnId;
+      state.boonPurchases = {};
+    } else if (turnId && state.turnId && (state.turnId !== turnId)) {
+      ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
+      return;
+    } else if (state.turnId && (state.boonPurchasesTurnId !== state.turnId)) {
+      state.boonPurchasesTurnId = state.turnId;
+      state.boonPurchases = {};
+    }
+    const purchaseState = withBoonAvailability(boon, state, boonIndex, turnNet, groupLimitMap);
+    const summaryEntry = Array.isArray(summary?.boons)
+      ? (summary.boons.find(entry => String(entry?.key ?? "") === String(purchaseState.key ?? "")) ?? summary.boons[boonIndex] ?? null)
+      : null;
+    let correctedState = false;
+    if (purchaseState.blockedByGroupLimit && summaryEntry && purchaseState.groupKey && (purchaseState.groupPerTurnLimit !== null)) {
+      const summaryGroupPurchased = Math.max(Number(summaryEntry.purchasedInGroupThisTurn ?? 0) || 0, 0);
+      if (summaryGroupPurchased < purchaseState.groupPerTurnLimit) {
+        state.boonPurchases = {
+          ...(state.boonPurchases ?? {}),
+          [purchaseState.groupKey]: summaryGroupPurchased
+        };
+        state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
+        correctedState = true;
+      }
+    }
+    if (purchaseState.purchasable === false && !purchaseState.blockedByGroupLimit && summaryEntry && (purchaseState.perTurnLimit !== null)) {
+      const summaryBoonPurchased = Math.max(Number(summaryEntry.purchasedThisTurn ?? 0) || 0, 0);
+      if (summaryBoonPurchased < purchaseState.perTurnLimit) {
+        state.boonPurchases = {
+          ...(state.boonPurchases ?? {}),
+          [String(purchaseState.key ?? buildBoonKey(boon))]: summaryBoonPurchased,
+          [String(boonIndex)]: summaryBoonPurchased
+        };
+        state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
+        correctedState = true;
+      }
+    }
+    const effectivePurchaseState = correctedState
+      ? withBoonAvailability(boon, state, boonIndex, turnNet, groupLimitMap)
+      : purchaseState;
+    if (correctedState) {
+      await updateFacilityVenture(facility, config, state);
+    }
+    if (!effectivePurchaseState.purchasable) {
+      const key = effectivePurchaseState.blockedByWindow
+        ? "INDYVENTURES.Errors.BoonPurchaseWindowBlocked"
+        : (effectivePurchaseState.blockedByGroupLimit
+            ? "INDYVENTURES.Errors.BoonGroupTurnLimitReached"
+            : (effectivePurchaseState.affordable ? "INDYVENTURES.Errors.BoonTurnLimitReached" : "INDYVENTURES.Errors.NotEnoughTreasury"));
+      moduleLog("Boon purchase blocked", {
+        actor: actor.name,
+        facility: facility.name,
+        boon: boon.name,
+        boonIndex,
+        requestedIndex,
+        requestedKey,
+        correctedState,
+        stateTurnId: state.turnId,
+        messageTurnId: turnId,
+        affordable: effectivePurchaseState.affordable,
+        purchasedThisTurn: effectivePurchaseState.purchasedThisTurn,
+        perTurnLimit: effectivePurchaseState.perTurnLimit,
+        group: effectivePurchaseState.group,
+        groupPerTurnLimit: effectivePurchaseState.groupPerTurnLimit,
+        purchasedInGroupThisTurn: effectivePurchaseState.purchasedInGroupThisTurn,
+        boonPurchasesTurnId: state.boonPurchasesTurnId,
+        boonPurchases: foundry.utils.deepClone(state.boonPurchases ?? {}),
+        purchaseWhen: effectivePurchaseState.purchaseWhen,
+        purchaseWhenAllowed: effectivePurchaseState.purchaseWhenAllowed
+      });
+      if (summary) {
+        summary.treasury = state.treasury;
+        summary.lastTurnNet = turnNet;
+        summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
+        summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
+        await rerenderSummaryMessage(message, actorUuid, results);
+      }
+      ui.notifications.warn(game.i18n.format(key, {
+        boon: boon.name,
+        limit: effectivePurchaseState.blockedByGroupLimit
+          ? (effectivePurchaseState.groupPerTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"))
+          : (effectivePurchaseState.perTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited")),
+        purchased: effectivePurchaseState.blockedByGroupLimit
+          ? effectivePurchaseState.purchasedInGroupThisTurn
+          : effectivePurchaseState.purchasedThisTurn,
+        mode: effectivePurchaseState.purchaseWhenLabel,
+        group: effectivePurchaseState.group || "-"
+      }));
+      return;
+    }
+
+    const boonKey = String(effectivePurchaseState.key ?? buildBoonKey(boon));
+    const groupKey = String(effectivePurchaseState.groupKey ?? "");
+    const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
+    const previousGroupPurchaseCount = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
+    const previousTreasury = state.treasury;
+    state.treasury -= boon.cost;
+    state.boonPurchases = {
+      ...(state.boonPurchases ?? {}),
+      [boonKey]: previousPurchaseCount + 1,
+      [String(boonIndex)]: previousPurchaseCount + 1
+    };
+    state.boonPurchasesTurnId = state.turnId || turnId || state.boonPurchasesTurnId || "";
+    if (groupKey) state.boonPurchases[groupKey] = previousGroupPurchaseCount + 1;
+    await updateFacilityVenture(facility, config, state);
+    moduleLog("Boon purchase: funds reserved", {
+      actor: actor.name,
+      facility: facility.name,
+      boon: boon.name,
+      cost: boon.cost,
+      treasuryBefore: previousTreasury,
+      treasuryAfter: state.treasury,
+      purchasedThisTurnBefore: previousPurchaseCount,
+      purchasedThisTurnAfter: state.boonPurchases[boonKey],
+      rewardUuid: boon.rewardUuid || null
     });
-    summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
-    await rerenderSummaryMessage(message, actorUuid, results);
+
+    let rewardName = null;
+    if (boon.rewardUuid) {
+      try {
+        rewardName = await grantBoonReward(actor, facility, boon);
+      } catch (error) {
+        state.treasury = previousTreasury;
+        if (previousPurchaseCount > 0) {
+          state.boonPurchases[boonKey] = previousPurchaseCount;
+          state.boonPurchases[String(boonIndex)] = previousPurchaseCount;
+        } else {
+          delete state.boonPurchases[boonKey];
+          delete state.boonPurchases[String(boonIndex)];
+        }
+        if (groupKey) {
+          if (previousGroupPurchaseCount > 0) state.boonPurchases[groupKey] = previousGroupPurchaseCount;
+          else delete state.boonPurchases[groupKey];
+        }
+        await updateFacilityVenture(facility, config, state);
+        ui.notifications.error(error.message);
+        return;
+      }
+    }
+
+    const notificationKey = rewardName
+      ? "INDYVENTURES.Notifications.BoonPurchasedReward"
+      : "INDYVENTURES.Notifications.BoonPurchased";
+    ui.notifications.info(game.i18n.format(notificationKey, {
+      boon: boon.name,
+      venture: config.ventureName || facility.name,
+      reward: rewardName
+    }));
+
+    if (summary) {
+      summary.treasury = state.treasury;
+      summary.lastTurnNet = turnNet;
+      summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
+      summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
+      await rerenderSummaryMessage(message, actorUuid, results);
+    }
+  };
+
+  const previous = boonPurchaseLocks.get(facilityUuid) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(runPurchase);
+  boonPurchaseLocks.set(facilityUuid, current);
+  try {
+    await current;
+  } finally {
+    if (boonPurchaseLocks.get(facilityUuid) === current) {
+      boonPurchaseLocks.delete(facilityUuid);
+    }
   }
 }
 
@@ -810,9 +893,9 @@ async function onClaimTreasury(message, button) {
   if (summary) {
     const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
     summary.treasury = state.treasury;
-    summary.boons = summary.boons.map((entry, index) => {
-      return withBoonAvailability(entry, state, index, turnNet);
-    });
+    const boons = parseBoonsFromConfig(config);
+    const groupLimitMap = buildGroupLimitMap(boons);
+    summary.boons = summary.boons.map((entry, index) => withBoonAvailability(entry, state, index, turnNet, groupLimitMap));
     summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
     await rerenderSummaryMessage(message, actorUuid, results);
   }
@@ -826,6 +909,8 @@ export function registerChatHooks() {
 
     const type = message.getFlag(MODULE_ID, "type");
     if (type !== "ventureSummary") return;
+    if (htmlRoot.dataset.indyVenturesBound === "1") return;
+    htmlRoot.dataset.indyVenturesBound = "1";
 
     htmlRoot.addEventListener("click", event => {
       const link = event.target.closest(".content-link[data-uuid]");

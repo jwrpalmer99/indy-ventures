@@ -29,6 +29,7 @@ export function getInitialState(config) {
     failed: false,
     lastTurnNet: 0,
     turnId: "",
+    boonPurchasesTurnId: "",
     boonPurchases: {}
   };
 }
@@ -74,12 +75,24 @@ export function sanitizeState(raw = {}, config = null) {
   merged.failed = asBoolean(merged.failed, false);
   merged.lastTurnNet = asInteger(merged.lastTurnNet, 0);
   merged.turnId = String(merged.turnId ?? "");
+  merged.boonPurchasesTurnId = String(merged.boonPurchasesTurnId ?? "");
   const boonPurchases = {};
   if (merged.boonPurchases && (typeof merged.boonPurchases === "object")) {
     for (const [key, value] of Object.entries(merged.boonPurchases)) {
       const count = Math.max(asInteger(value, 0), 0);
       if (count > 0) boonPurchases[String(key)] = count;
     }
+  }
+  if (!merged.boonPurchasesTurnId && Object.keys(boonPurchases).length) {
+    // Legacy/unknown state: no turn binding means counts are unsafe, so discard them.
+    merged.boonPurchases = {};
+    return merged;
+  }
+  if (merged.boonPurchasesTurnId && merged.turnId && (merged.boonPurchasesTurnId !== merged.turnId)) {
+    // Self-heal stale per-turn purchase counts that leaked into a later turn.
+    merged.boonPurchasesTurnId = merged.turnId;
+    merged.boonPurchases = {};
+    return merged;
   }
   merged.boonPurchases = boonPurchases;
   return merged;
@@ -184,10 +197,14 @@ function getFacilityVentureEffects(facility) {
 }
 
 export async function updateFacilityVenture(facility, config, state) {
+  const safeConfig = sanitizeConfig(config, facility);
+  const safeState = sanitizeState(state, safeConfig);
+
   const update = {
-    [FLAG_CONFIG]: sanitizeConfig(config, facility),
-    [FLAG_STATE]: sanitizeState(state, config)
+    [FLAG_CONFIG]: safeConfig,
+    [FLAG_STATE]: safeState
   };
+
   return facility.update(update);
 }
 
@@ -275,5 +292,10 @@ export function sanitizeStatePatchForUpdate(facility, change) {
     recursive: true,
     insertKeys: true
   });
+  // If boon purchases are explicitly provided in the patch (including an empty object),
+  // replace the map instead of recursively merging, so per-turn resets can clear counts.
+  if (Object.prototype.hasOwnProperty.call(patch, "boonPurchases")) {
+    merged.boonPurchases = foundry.utils.deepClone(patch.boonPurchases ?? {});
+  }
   foundry.utils.setProperty(change, FLAG_STATE, sanitizeState(merged, nextConfig));
 }
