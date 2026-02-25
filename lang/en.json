@@ -86,7 +86,7 @@
       "ProfitDieIncreased": "Profit die increased: {from} -> {to}",
       "ProfitDieDecreased": "Profit die decreased: {from} -> {to}",
       "NetLine": "Income: {income} gp | Outgoings: {outgoings} gp | Net: {net} gp | Treasury: {treasury} gp",
-      "ClaimTreasury": "Claim to Character GP",
+      "ClaimTreasury": "Payout Funds to Character",
       "Unlimited": "unlimited",
       "BoonTurnLimit": "Purchased this bastion turn: {purchased}/{limit}",
       "BoonTurnLimitUnlimited": "Purchased this bastion turn: {purchased} (no limit)",

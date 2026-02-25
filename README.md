@@ -134,7 +134,7 @@ Growth/degradation specifics:
 Summary cards support:
 
 - Buying boons directly from chat.
-- Claiming treasury to character GP (prompts for claim amount).
+- Claiming treasury to character (prompts for claim amount).
 - Reward links (open linked Item/Effect sheet).
 
 Cards also show net result styling, profit die changes, and applied venture modifier effects with remaining turns.
