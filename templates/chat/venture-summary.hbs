@@ -107,50 +107,51 @@
           </div>
         {{/if}}
 
-        {{#if boons.length}}
+        {{#if hasPurchasableBoons}}
           <div class="indy-venture-boons">
             {{#each boons}}
-              <div class="indy-venture-boon">
-                <div class="indy-venture-boon-header">
-                <button type="button"
-                        data-action="purchaseBoon"
-                        data-facility-uuid="{{ ../facilityUuid }}"
-                        data-boon-index="{{ index }}"
-                        data-boon-key="{{ key }}"
-                        {{#unless purchasable}}disabled{{/unless}}>
-                  {{ name }} ({{ cost }} gp)
-                </button>
-                </div>
-                <div class="indy-venture-boon-body">
-                  {{#if description}}
-                    <p class="hint boon-description">{{ description }}</p>
-                  {{/if}}
-                  {{#if perTurnLimit}}
-                    <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimit" purchased=purchasedThisTurn limit=perTurnLimit }}</p>
-                  {{/if}}
-                  {{#unless perTurnLimit}}
-                    <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimitUnlimited" purchased=purchasedThisTurn }}</p>
-                  {{/unless}}
-                  {{#if group}}
-                    {{#if groupPerTurnLimit}}
-                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimit" group=group purchased=purchasedInGroupThisTurn limit=groupPerTurnLimit }}</p>
-                    {{else}}
-                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimitUnlimited" group=group purchased=purchasedInGroupThisTurn }}</p>
+              {{#if purchasable}}
+                <div class="indy-venture-boon">
+                  <div class="indy-venture-boon-header">
+                  <button type="button"
+                          data-action="purchaseBoon"
+                          data-facility-uuid="{{ ../facilityUuid }}"
+                          data-boon-index="{{ index }}"
+                          data-boon-key="{{ key }}">
+                    {{ name }} ({{ cost }} gp)
+                  </button>
+                  </div>
+                  <div class="indy-venture-boon-body">
+                    {{#if description}}
+                      <p class="hint boon-description">{{ description }}</p>
                     {{/if}}
-                  {{/if}}
-                  {{#if rewardUuid}}
-                    <p class="hint boon-meta">
-                      {{ localize "INDYVENTURES.Chat.BoonRewardLabel" }}
-                      <a class="content-link" data-uuid="{{ rewardUuid }}" data-link>
-                        {{#if rewardImg}}
-                          <img class="indy-boon-reward-icon" src="{{ rewardImg }}" alt="{{ rewardName }}">
-                        {{/if}}
-                        {{ rewardName }}
-                      </a>
-                    </p>
-                  {{/if}}
+                    {{#if perTurnLimit}}
+                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimit" purchased=purchasedThisTurn limit=perTurnLimit }}</p>
+                    {{/if}}
+                    {{#unless perTurnLimit}}
+                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimitUnlimited" purchased=purchasedThisTurn }}</p>
+                    {{/unless}}
+                    {{#if group}}
+                      {{#if groupPerTurnLimit}}
+                        <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimit" group=group purchased=purchasedInGroupThisTurn limit=groupPerTurnLimit }}</p>
+                      {{else}}
+                        <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimitUnlimited" group=group purchased=purchasedInGroupThisTurn }}</p>
+                      {{/if}}
+                    {{/if}}
+                    {{#if rewardUuid}}
+                      <p class="hint boon-meta">
+                        {{ localize "INDYVENTURES.Chat.BoonRewardLabel" }}
+                        <a class="content-link" data-uuid="{{ rewardUuid }}" data-link>
+                          {{#if rewardImg}}
+                            <img class="indy-boon-reward-icon" src="{{ rewardImg }}" alt="{{ rewardName }}">
+                          {{/if}}
+                          {{ rewardName }}
+                        </a>
+                      </p>
+                    {{/if}}
+                  </div>
                 </div>
-              </div>
+              {{/if}}
             {{/each}}
           </div>
         {{/if}}

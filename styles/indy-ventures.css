@@ -51,29 +51,44 @@
 }
 
 .indy-ventures-sheet .indy-boons-table .col-title {
-  width: 18%;
+  width: 30%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-cost {
-  width: 9%;
+  width: 11%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-reward {
-  width: 53%;
+  width: 42%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-count {
-  width: 10%;
+  width: 12%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-window {
-  width: 10%;
+  width: 15%;
+}
+
+.indy-ventures-sheet .indy-boons-table th {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-size: 0.84rem;
+  letter-spacing: 0;
+}
+
+.indy-ventures-sheet .indy-boons-table th:nth-child(4),
+.indy-ventures-sheet .indy-boons-table th:nth-child(5),
+.indy-ventures-sheet .indy-boons-table td:nth-child(4),
+.indy-ventures-sheet .indy-boons-table td:nth-child(5) {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
 }
 
 .indy-ventures-sheet .indy-boons-table th:last-child,
 .indy-ventures-sheet .indy-boons-table td:last-child {
   text-align: center;
-  width: auto;
 }
 
 .indy-ventures-sheet .indy-boons-table tbody tr:nth-child(odd) {

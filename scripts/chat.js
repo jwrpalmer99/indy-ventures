@@ -765,6 +765,7 @@ async function onPurchaseBoon(message, button) {
     summary.boons = summary.boons.map((entry, index) => {
       return withBoonAvailability(entry, state, index, turnNet);
     });
+    summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
     await rerenderSummaryMessage(message, actorUuid, results);
   }
 }
@@ -812,6 +813,7 @@ async function onClaimTreasury(message, button) {
     summary.boons = summary.boons.map((entry, index) => {
       return withBoonAvailability(entry, state, index, turnNet);
     });
+    summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
     await rerenderSummaryMessage(message, actorUuid, results);
   }
 }

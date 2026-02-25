@@ -669,10 +669,15 @@ async function promptCoverageChoice({
   deficit,
   treasuryCover,
   characterCover,
+  treasuryAvailable,
+  actorNeededAfterTreasury,
   availableGp,
   availableInventoryGp,
   canCoverWithGp,
   canCoverWithInventory,
+  canCoverWithTreasuryAndActor,
+  canCoverWithActor,
+  mode = "legacy",
   deciderName
 }) {
   const title = game.i18n.localize("INDYVENTURES.Prompt.Title");
@@ -680,38 +685,65 @@ async function promptCoverageChoice({
     actor: actorName,
     venture: ventureName,
     deficit,
-    treasuryCover,
-    characterCover,
+    treasuryCover: treasuryCover ?? treasuryAvailable ?? 0,
+    characterCover: characterCover ?? actorNeededAfterTreasury ?? 0,
     availableGp,
     availableInventoryGp,
     decider: deciderName
   });
+  const coverFromTreasuryAndActorLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromTreasuryAndActor");
+  const coverFromTreasuryLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromTreasury");
+  const coverFromActorLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromActor");
   const coverFromGpLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromGp");
   const coverFromInventoryLabel = game.i18n.localize("INDYVENTURES.Prompt.CoverFromInventory");
   const declineLabel = game.i18n.localize("INDYVENTURES.Prompt.Decline");
 
   return new Promise(resolve => {
     const buttons = {};
-    if (canCoverWithGp) {
-      buttons.coverGp = {
-        label: coverFromGpLabel,
-        callback: () => resolve("gp")
-      };
-    }
-    if (canCoverWithInventory) {
-      buttons.coverInventory = {
-        label: coverFromInventoryLabel,
-        callback: () => resolve("inventory")
-      };
+
+    if (mode === "treasuryActor") {
+      if (canCoverWithTreasuryAndActor) {
+        const requiresActorFunds = Math.max(Number(actorNeededAfterTreasury ?? characterCover ?? 0) || 0, 0) > 0;
+        buttons.coverTreasuryAndActor = {
+          label: requiresActorFunds ? coverFromTreasuryAndActorLabel : coverFromTreasuryLabel,
+          callback: () => resolve("treasuryActor")
+        };
+      }
+      if (canCoverWithActor) {
+        buttons.coverActor = {
+          label: coverFromActorLabel,
+          callback: () => resolve("actor")
+        };
+      }
+    } else {
+      if (canCoverWithGp) {
+        buttons.coverGp = {
+          label: coverFromGpLabel,
+          callback: () => resolve("gp")
+        };
+      }
+      if (canCoverWithInventory) {
+        buttons.coverInventory = {
+          label: coverFromInventoryLabel,
+          callback: () => resolve("inventory")
+        };
+      }
     }
     buttons.decline = {
       label: declineLabel,
       callback: () => resolve("decline")
     };
 
-    const defaultButton = canCoverWithGp
-      ? "coverGp"
-      : (canCoverWithInventory ? "coverInventory" : "decline");
+    let defaultButton = "decline";
+    if (mode === "treasuryActor") {
+      if (canCoverWithTreasuryAndActor) defaultButton = "coverTreasuryAndActor";
+      else if (canCoverWithActor) defaultButton = "coverActor";
+    } else if (canCoverWithGp) {
+      defaultButton = "coverGp";
+    } else if (canCoverWithInventory) {
+      defaultButton = "coverInventory";
+    }
+
     new Dialog({
       title,
       content,
@@ -729,10 +761,15 @@ async function requestCoverageDecisionFromOwner({
   deficit,
   treasuryCover,
   characterCover,
+  treasuryAvailable,
+  actorNeededAfterTreasury,
   availableGp,
   availableInventoryGp,
   canCoverWithGp,
-  canCoverWithInventory
+  canCoverWithInventory,
+  canCoverWithTreasuryAndActor,
+  canCoverWithActor,
+  mode = "legacy"
 }) {
   const requestId = foundry.utils.randomID();
   const response = await new Promise(resolve => {
@@ -754,14 +791,112 @@ async function requestCoverageDecisionFromOwner({
       deficit,
       treasuryCover,
       characterCover,
+      treasuryAvailable,
+      actorNeededAfterTreasury,
       availableGp,
       availableInventoryGp,
       canCoverWithGp,
-      canCoverWithInventory
+      canCoverWithInventory,
+      canCoverWithTreasuryAndActor,
+      canCoverWithActor,
+      mode
     });
   });
 
   return response;
+}
+
+async function maybeCoverDeficitTreasuryOrActor({
+  actor,
+  facility,
+  deficit,
+  state,
+  wallet
+}) {
+  const result = {
+    coveredCharacter: false,
+    autoCovered: false,
+    manualCovered: false,
+    coveredByInventory: false,
+    promptDeclined: false,
+    promptTimedOut: false,
+    promptUserName: null,
+    insufficientFunds: false,
+    characterCovered: 0,
+    treasuryCovered: 0
+  };
+
+  if (deficit <= 0) return result;
+
+  const treasuryAvailable = Math.min(state.treasury, deficit);
+  const actorNeededAfterTreasury = Math.max(deficit - treasuryAvailable, 0);
+  const canCoverWithTreasuryAndActor = (treasuryAvailable > 0) && canCoverFromInventory(wallet, actorNeededAfterTreasury);
+  const canCoverWithActor = canCoverFromInventory(wallet, deficit);
+  result.insufficientFunds = !canCoverWithTreasuryAndActor && !canCoverWithActor;
+  if (result.insufficientFunds) return result;
+
+  const preferredUser = getPreferredCoverageUser(actor);
+  let choice = "decline";
+  if (!preferredUser || (preferredUser.id === game.user.id)) {
+    choice = await promptCoverageChoice({
+      actorName: actor.name,
+      ventureName: facility.name,
+      deficit,
+      treasuryAvailable,
+      actorNeededAfterTreasury,
+      availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
+      availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
+      canCoverWithTreasuryAndActor,
+      canCoverWithActor,
+      mode: "treasuryActor",
+      deciderName: game.user.name
+    });
+    result.promptUserName = game.user.name;
+  } else {
+    const decision = await requestCoverageDecisionFromOwner({
+      targetUser: preferredUser,
+      actor,
+      facility,
+      deficit,
+      treasuryAvailable,
+      actorNeededAfterTreasury,
+      availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
+      availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
+      canCoverWithTreasuryAndActor,
+      canCoverWithActor,
+      mode: "treasuryActor"
+    });
+    choice = String(decision?.choice ?? "decline");
+    result.promptUserName = preferredUser.name;
+    result.promptTimedOut = Boolean(decision?.timedOut);
+  }
+
+  if (choice === "treasuryActor") {
+    if (treasuryAvailable > 0) {
+      state.treasury -= treasuryAvailable;
+      result.treasuryCovered = treasuryAvailable;
+    }
+    if (actorNeededAfterTreasury > 0) {
+      if (!spendFromInventory(wallet, actorNeededAfterTreasury)) return result;
+      result.coveredByInventory = true;
+      result.characterCovered = actorNeededAfterTreasury;
+    }
+    result.coveredCharacter = true;
+    result.manualCovered = true;
+    return result;
+  }
+
+  if (choice === "actor") {
+    if (!spendFromInventory(wallet, deficit)) return result;
+    result.coveredCharacter = true;
+    result.manualCovered = true;
+    result.coveredByInventory = true;
+    result.characterCovered = deficit;
+    return result;
+  }
+
+  result.promptDeclined = !result.promptTimedOut;
+  return result;
 }
 
 async function maybeCoverCharacterDeficit({
@@ -791,8 +926,8 @@ async function maybeCoverCharacterDeficit({
   }
 
   const canCoverWithGp = getWalletCurrency(wallet, "gp") >= characterCover;
-  const canCoverWithInventory = canCoverFromInventory(wallet, characterCover);
-  result.insufficientFunds = !canCoverWithGp && !canCoverWithInventory;
+  const canCoverWithActor = canCoverFromInventory(wallet, characterCover);
+  result.insufficientFunds = !canCoverWithGp && !canCoverWithActor;
   if (result.insufficientFunds) return result;
 
   if (autoCoverLoss) {
@@ -814,18 +949,13 @@ async function maybeCoverCharacterDeficit({
       characterCover,
       availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
       availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
-      canCoverWithGp,
-      canCoverWithInventory,
+      canCoverWithActor,
+      mode: "treasuryActor",
       deciderName: game.user.name
     });
 
     result.promptUserName = game.user.name;
-    if (choice === "gp") {
-      if (!spendFromGp(wallet, characterCover)) return result;
-      result.coveredCharacter = true;
-      result.manualCovered = true;
-      result.characterCovered = characterCover;
-    } else if (choice === "inventory") {
+    if (choice === "actor") {
       if (!spendFromInventory(wallet, characterCover)) return result;
       result.coveredCharacter = true;
       result.manualCovered = true;
@@ -846,18 +976,13 @@ async function maybeCoverCharacterDeficit({
     characterCover,
     availableGp: formatGpAmount(getWalletCurrency(wallet, "gp")),
     availableInventoryGp: formatGpAmount(getWalletTotalGp(wallet)),
-    canCoverWithGp,
-    canCoverWithInventory
+    canCoverWithActor,
+    mode: "treasuryActor"
   });
 
   result.promptUserName = preferredUser.name;
   result.promptTimedOut = Boolean(decision?.timedOut);
-  if (decision?.choice === "gp") {
-    if (!spendFromGp(wallet, characterCover)) return result;
-    result.coveredCharacter = true;
-    result.manualCovered = true;
-    result.characterCovered = characterCover;
-  } else if (decision?.choice === "inventory") {
+  if (decision?.choice === "actor") {
     if (!spendFromInventory(wallet, characterCover)) return result;
     result.coveredCharacter = true;
     result.manualCovered = true;
@@ -980,31 +1105,71 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     if (config.autoUseTreasuryLoss) {
       treasuryCovered = Math.min(state.treasury, deficit);
       state.treasury -= treasuryCovered;
+      const characterDeficit = Math.max(deficit - treasuryCovered, 0);
+      const coverage = await maybeCoverCharacterDeficit({
+        actor,
+        facility,
+        deficit,
+        treasuryCover: treasuryCovered,
+        characterCover: characterDeficit,
+        wallet,
+        autoCoverLoss: config.autoCoverLoss
+      });
+      characterCovered = coverage.characterCovered;
+      coveredDeficit = (treasuryCovered + characterCovered) >= deficit;
+      autoCovered = coverage.autoCovered;
+      manualCovered = coverage.manualCovered;
+      coveredByInventory = coverage.coveredByInventory;
+      promptDeclined = coverage.promptDeclined;
+      promptTimedOut = coverage.promptTimedOut;
+      promptUserName = coverage.promptUserName;
+      insufficientFunds = coverage.insufficientFunds;
+      uncoveredDeficit = Math.max(deficit - treasuryCovered - characterCovered, 0);
+      hasCoverageSources = (treasuryCovered > 0) || (characterCovered > 0);
+    } else if (config.autoCoverLoss) {
+      treasuryCovered = 0;
+      const coverage = await maybeCoverCharacterDeficit({
+        actor,
+        facility,
+        deficit,
+        treasuryCover: 0,
+        characterCover: deficit,
+        wallet,
+        autoCoverLoss: true
+      });
+      characterCovered = coverage.characterCovered;
+      coveredDeficit = characterCovered >= deficit;
+      autoCovered = coverage.autoCovered;
+      manualCovered = coverage.manualCovered;
+      coveredByInventory = coverage.coveredByInventory;
+      promptDeclined = coverage.promptDeclined;
+      promptTimedOut = coverage.promptTimedOut;
+      promptUserName = coverage.promptUserName;
+      insufficientFunds = coverage.insufficientFunds;
+      uncoveredDeficit = Math.max(deficit - characterCovered, 0);
+      hasCoverageSources = characterCovered > 0;
     } else {
       treasuryCovered = 0;
+      const coverage = await maybeCoverDeficitTreasuryOrActor({
+        actor,
+        facility,
+        deficit,
+        state,
+        wallet
+      });
+      treasuryCovered = coverage.treasuryCovered;
+      characterCovered = coverage.characterCovered;
+      coveredDeficit = (treasuryCovered + characterCovered) >= deficit;
+      autoCovered = coverage.autoCovered;
+      manualCovered = coverage.manualCovered;
+      coveredByInventory = coverage.coveredByInventory;
+      promptDeclined = coverage.promptDeclined;
+      promptTimedOut = coverage.promptTimedOut;
+      promptUserName = coverage.promptUserName;
+      insufficientFunds = coverage.insufficientFunds;
+      uncoveredDeficit = Math.max(deficit - treasuryCovered - characterCovered, 0);
+      hasCoverageSources = (treasuryCovered > 0) || (characterCovered > 0);
     }
-    const characterDeficit = Math.max(deficit - treasuryCovered, 0);
-
-    const coverage = await maybeCoverCharacterDeficit({
-      actor,
-      facility,
-      deficit,
-      treasuryCover: treasuryCovered,
-      characterCover: characterDeficit,
-      wallet,
-      autoCoverLoss: config.autoCoverLoss
-    });
-    characterCovered = coverage.characterCovered;
-    coveredDeficit = (treasuryCovered + characterCovered) >= deficit;
-    autoCovered = coverage.autoCovered;
-    manualCovered = coverage.manualCovered;
-    coveredByInventory = coverage.coveredByInventory;
-    promptDeclined = coverage.promptDeclined;
-    promptTimedOut = coverage.promptTimedOut;
-    promptUserName = coverage.promptUserName;
-    insufficientFunds = coverage.insufficientFunds;
-    uncoveredDeficit = Math.max(deficit - treasuryCovered - characterCovered, 0);
-    hasCoverageSources = (treasuryCovered > 0) || (characterCovered > 0);
 
     if (!coveredDeficit && (state.currentProfitDie === "d4")) {
       state.failed = true;
@@ -1184,6 +1349,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     naturalOneDegraded,
     failed,
     boons,
+    hasPurchasableBoons: boons.some(boon => boon.purchasable),
     modifierEffects
   };
 }
@@ -1282,10 +1448,15 @@ async function onCoveragePrompt(payload) {
     deficit: payload.deficit,
     treasuryCover: payload.treasuryCover ?? 0,
     characterCover: payload.characterCover ?? 0,
+    treasuryAvailable: payload.treasuryAvailable ?? 0,
+    actorNeededAfterTreasury: payload.actorNeededAfterTreasury ?? 0,
     availableGp: payload.availableGp,
     availableInventoryGp: payload.availableInventoryGp ?? payload.availableGp,
     canCoverWithGp: payload.canCoverWithGp !== false,
     canCoverWithInventory: payload.canCoverWithInventory !== false,
+    canCoverWithTreasuryAndActor: payload.canCoverWithTreasuryAndActor === true,
+    canCoverWithActor: payload.canCoverWithActor === true,
+    mode: String(payload.mode ?? "legacy"),
     deciderName: game.user.name
   });
 

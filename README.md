@@ -123,8 +123,8 @@ Growth/degradation specifics:
 - If `Auto-use Venture Treasury for Losses` is enabled, treasury is spent first.
 - If `Auto-cover Deficits` is enabled, remaining character portion is auto-paid from GP.
 - If auto-cover is disabled and funds are available, owner/GM is prompted to:
-  - cover from GP
-  - cover from total inventory currency
+  - cover from venture treasury first, then actor funds for the remainder
+  - cover fully from actor funds
   - decline
 
 ## Chat Card Actions
