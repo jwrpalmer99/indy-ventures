@@ -4,7 +4,7 @@ import {
   sanitizeConfigPatchForUpdate,
   sanitizeStatePatchForUpdate
 } from "./config.js";
-import { parseBoonsText, parseBoonPerTurnLimit, parseBoonPurchaseWhen } from "./utils.js";
+import { parseBoonsText, parseBoonPerTurnLimit, parseBoonPurchaseWhen, resolveRewardDocumentSync } from "./utils.js";
 import { moduleLog } from "./logger.js";
 
 const BOON_TEXTAREA_SELECTOR = `textarea[name="flags.${MODULE_ID}.config.boonsText"]`;
@@ -185,6 +185,31 @@ function normalizeGroupLimitText(value) {
   const limit = parseBoonPerTurnLimit(raw, null);
   if (limit === null) return "";
   return String(limit);
+}
+
+function buildRewardReference(uuid, label = "") {
+  const rewardUuid = String(uuid ?? "").trim();
+  if (!rewardUuid) return "";
+  const safeLabel = String(label ?? "").replace(/[{}]/g, "").trim();
+  if (!safeLabel) return rewardUuid;
+  return `@UUID[${rewardUuid}]{${safeLabel}}`;
+}
+
+function normalizeRewardReferenceText(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const match = raw.match(/^@UUID\[([^\]]+)](?:\{([^}]+)})?$/i);
+  if (match) {
+    const uuid = String(match[1] ?? "").trim();
+    const label = String(match[2] ?? "").trim();
+    if (!uuid) return "";
+    if (label) return buildRewardReference(uuid, label);
+    const doc = resolveRewardDocumentSync(uuid);
+    return buildRewardReference(uuid, doc?.name ?? "");
+  }
+
+  const doc = resolveRewardDocumentSync(raw);
+  return buildRewardReference(raw, doc?.name ?? "");
 }
 
 function normalizePurchaseWhenText(value) {
@@ -528,7 +553,7 @@ function buildBoonLine(row) {
 
   const cost = Math.max(Number.parseInt(String(row.cost ?? "0"), 10) || 0, 0);
   const description = String(row.description ?? "").trim();
-  const reward = String(row.reward ?? "").trim();
+  const reward = normalizeRewardReferenceText(row.reward);
   const limit = normalizeLimitText(row.limit);
   const purchaseWhen = normalizePurchaseWhenText(row.purchaseWhen);
   const group = String(row.group ?? "").trim();
@@ -563,6 +588,7 @@ function serializeBoonRows(root) {
 function createBoonRowElement(doc, values = {}) {
   const row = doc.createElement("div");
   row.classList.add("indy-boon-row");
+  row.dataset.boonId = String(values.rowId ?? foundry.utils.randomID());
 
   const makeInput = ({ cls, type = "text", placeholder, value = "", min = null, step = null }) => {
     const input = doc.createElement("input");
@@ -625,17 +651,19 @@ function createBoonRowElement(doc, values = {}) {
   }
   row.append(purchaseWhenSelect);
 
-  row.append(makeInput({
+  const groupInput = makeInput({
     cls: "boon-group",
-    placeholder: game.i18n.localize("INDYVENTURES.BoonEditor.GroupPlaceholder"),
     value: values.group ?? ""
-  }));
+  });
+  groupInput.type = "hidden";
+  row.append(groupInput);
 
-  row.append(makeInput({
+  const groupLimitInput = makeInput({
     cls: "boon-group-limit",
-    placeholder: game.i18n.localize("INDYVENTURES.BoonEditor.GroupLimitPlaceholder"),
     value: values.groupLimit ?? ""
-  }));
+  });
+  groupLimitInput.type = "hidden";
+  row.append(groupLimitInput);
 
   const remove = doc.createElement("button");
   remove.type = "button";
@@ -647,8 +675,254 @@ function createBoonRowElement(doc, values = {}) {
   return row;
 }
 
+function getBoonRows(root) {
+  return Array.from(root.querySelectorAll(".indy-boon-row"));
+}
+
+function ensureBoonRowIds(root) {
+  for (const row of getBoonRows(root)) {
+    if (!row.dataset.boonId) row.dataset.boonId = foundry.utils.randomID();
+  }
+}
+
+function normalizeGroupName(value) {
+  return String(value ?? "").trim();
+}
+
+function createBoonGroupState(root) {
+  ensureBoonRowIds(root);
+  const state = { groups: [], nextId: 1 };
+  const byName = new Map();
+
+  for (const row of getBoonRows(root)) {
+    const groupInput = row.querySelector(".boon-group");
+    const groupLimitInput = row.querySelector(".boon-group-limit");
+    const groupName = normalizeGroupName(groupInput?.value);
+    const groupLimit = normalizeGroupLimitText(groupLimitInput?.value);
+    if (!groupName) {
+      row.dataset.groupId = "";
+      if (groupInput) groupInput.value = "";
+      if (groupLimitInput) groupLimitInput.value = "";
+      continue;
+    }
+
+    const key = groupName.toLowerCase();
+    let group = byName.get(key);
+    if (!group) {
+      group = { id: `group-${state.nextId++}`, name: groupName, limit: groupLimit };
+      byName.set(key, group);
+      state.groups.push(group);
+    } else if (!group.limit && groupLimit) {
+      group.limit = groupLimit;
+    }
+    row.dataset.groupId = group.id;
+  }
+
+  return state;
+}
+
+function getBoonGroupState(root) {
+  if (!root._indyBoonGroups) {
+    root._indyBoonGroups = createBoonGroupState(root);
+  }
+  return root._indyBoonGroups;
+}
+
+function getGroupById(state, groupId) {
+  return state.groups.find(group => group.id === groupId) ?? null;
+}
+
+function syncRowGroupFields(root) {
+  const state = getBoonGroupState(root);
+  const groupsById = new Map(state.groups.map(group => [group.id, group]));
+  for (const row of getBoonRows(root)) {
+    const groupInput = row.querySelector(".boon-group");
+    const groupLimitInput = row.querySelector(".boon-group-limit");
+    const groupId = String(row.dataset.groupId ?? "");
+    const group = groupsById.get(groupId);
+    if (!group) {
+      row.dataset.groupId = "";
+      if (groupInput) groupInput.value = "";
+      if (groupLimitInput) groupLimitInput.value = "";
+      continue;
+    }
+    if (groupInput) groupInput.value = group.name;
+    if (groupLimitInput) groupLimitInput.value = normalizeGroupLimitText(group.limit);
+  }
+}
+
+function getBoonRowName(row) {
+  return String(row.querySelector(".boon-name")?.value ?? "").trim()
+    || game.i18n.localize("INDYVENTURES.BoonEditor.UnnamedBoon");
+}
+
+function createBoonChip(doc, row) {
+  const chip = doc.createElement("button");
+  chip.type = "button";
+  chip.classList.add("indy-boon-chip");
+  chip.draggable = true;
+  chip.dataset.boonId = String(row.dataset.boonId ?? "");
+  chip.textContent = getBoonRowName(row);
+  return chip;
+}
+
+function createGroupCard(doc, group, memberRows, isUngrouped = false) {
+  const card = doc.createElement("article");
+  card.classList.add("indy-boon-group-card");
+
+  const header = doc.createElement("div");
+  header.classList.add("indy-boon-group-card-header");
+  if (isUngrouped) {
+    const title = doc.createElement("strong");
+    title.textContent = game.i18n.localize("INDYVENTURES.BoonEditor.UngroupedTitle");
+    header.append(title);
+  } else {
+    const nameInput = doc.createElement("input");
+    nameInput.type = "text";
+    nameInput.classList.add("indy-boon-group-name");
+    nameInput.dataset.groupId = group.id;
+    nameInput.value = group.name;
+    nameInput.placeholder = game.i18n.localize("INDYVENTURES.BoonEditor.GroupPlaceholder");
+    header.append(nameInput);
+
+    const limitInput = doc.createElement("input");
+    limitInput.type = "text";
+    limitInput.classList.add("indy-boon-group-limit");
+    limitInput.dataset.groupId = group.id;
+    limitInput.value = normalizeGroupLimitText(group.limit);
+    limitInput.placeholder = game.i18n.localize("INDYVENTURES.BoonEditor.GroupLimitPlaceholder");
+    header.append(limitInput);
+
+    const removeButton = doc.createElement("button");
+    removeButton.type = "button";
+    removeButton.dataset.action = "removeBoonGroup";
+    removeButton.dataset.groupId = group.id;
+    removeButton.classList.add("icon", "fa-solid", "fa-trash");
+    removeButton.ariaLabel = game.i18n.localize("INDYVENTURES.BoonEditor.Remove");
+    header.append(removeButton);
+  }
+  card.append(header);
+
+  const dropZone = doc.createElement("div");
+  dropZone.classList.add("indy-boon-group-drop");
+  dropZone.dataset.groupId = isUngrouped ? "" : group.id;
+  if (memberRows.length) {
+    for (const row of memberRows) dropZone.append(createBoonChip(doc, row));
+  } else {
+    const empty = doc.createElement("span");
+    empty.classList.add("indy-boon-group-empty");
+    empty.textContent = game.i18n.localize("INDYVENTURES.BoonEditor.NoBoonsInGroup");
+    dropZone.append(empty);
+  }
+  card.append(dropZone);
+  return card;
+}
+
+function renderBoonGroupCards(root) {
+  const container = root.querySelector("[data-boon-groups]");
+  if (!container) return;
+  const doc = container.ownerDocument;
+  const details = root.querySelector("[data-boon-groups-details]");
+  const countLabel = root.querySelector("[data-boon-groups-count]");
+  const state = getBoonGroupState(root);
+  syncRowGroupFields(root);
+
+  const rows = getBoonRows(root);
+  const groupedRows = new Map(state.groups.map(group => [group.id, []]));
+  const ungroupedRows = [];
+  for (const row of rows) {
+    const groupId = String(row.dataset.groupId ?? "");
+    if (groupedRows.has(groupId)) groupedRows.get(groupId).push(row);
+    else ungroupedRows.push(row);
+  }
+
+  container.innerHTML = "";
+  container.append(createGroupCard(doc, null, ungroupedRows, true));
+  for (const group of state.groups) {
+    container.append(createGroupCard(doc, group, groupedRows.get(group.id) ?? []));
+  }
+
+  if (countLabel) {
+    countLabel.textContent = game.i18n.format("INDYVENTURES.BoonEditor.GroupCount", { count: state.groups.length });
+  }
+  if (details) {
+    if (state.groups.length === 0) {
+      details.open = false;
+    } else if (details.dataset.indyGroupsInitialized !== "true") {
+      details.open = true;
+    }
+    details.dataset.indyGroupsInitialized = "true";
+  }
+}
+
+function addBoonGroup(root) {
+  const state = getBoonGroupState(root);
+  const number = state.groups.length + 1;
+  state.groups.push({
+    id: `group-${state.nextId++}`,
+    name: game.i18n.format("INDYVENTURES.BoonEditor.GroupDefaultName", { number }),
+    limit: ""
+  });
+  const details = root.querySelector("[data-boon-groups-details]");
+  if (details) {
+    details.open = true;
+    details.dataset.indyGroupsInitialized = "true";
+  }
+  renderBoonGroupCards(root);
+}
+
+function removeBoonGroup(root, groupId) {
+  const state = getBoonGroupState(root);
+  state.groups = state.groups.filter(group => group.id !== groupId);
+  for (const row of getBoonRows(root)) {
+    if (String(row.dataset.groupId ?? "") === groupId) row.dataset.groupId = "";
+  }
+  renderBoonGroupCards(root);
+}
+
+function assignBoonToGroup(root, boonId, groupId) {
+  const state = getBoonGroupState(root);
+  const row = getBoonRows(root).find(entry => String(entry.dataset.boonId ?? "") === boonId);
+  if (!row) return;
+  if (!groupId || !getGroupById(state, groupId)) row.dataset.groupId = "";
+  else row.dataset.groupId = groupId;
+  renderBoonGroupCards(root);
+}
+
+function updateBoonGroupName(root, groupId, value) {
+  const state = getBoonGroupState(root);
+  const group = getGroupById(state, groupId);
+  if (!group) return;
+  const nextName = normalizeGroupName(value);
+  if (!nextName) return renderBoonGroupCards(root);
+
+  const duplicate = state.groups.find(entry => (entry.id !== groupId) && (entry.name.toLowerCase() === nextName.toLowerCase()));
+  if (duplicate) {
+    for (const row of getBoonRows(root)) {
+      if (String(row.dataset.groupId ?? "") === groupId) row.dataset.groupId = duplicate.id;
+    }
+    state.groups = state.groups.filter(entry => entry.id !== groupId);
+    return renderBoonGroupCards(root);
+  }
+
+  group.name = nextName;
+  renderBoonGroupCards(root);
+}
+
+function updateBoonGroupLimit(root, groupId, value) {
+  const group = getGroupById(getBoonGroupState(root), groupId);
+  if (!group) return;
+  group.limit = normalizeGroupLimitText(value);
+  renderBoonGroupCards(root);
+}
+
 function bindBoonEditorDialog(root) {
   if (!root) return;
+
+  getBoonGroupState(root);
+  renderBoonGroupCards(root);
+  if (root.dataset.indyVentureBoonDialogBound === "true") return;
+  root.dataset.indyVentureBoonDialogBound = "true";
 
   root.addEventListener("dragover", event => {
     const rewardInput = event.target.closest(".boon-reward");
@@ -661,17 +935,70 @@ function bindBoonEditorDialog(root) {
 
   root.addEventListener("drop", event => {
     const rewardInput = event.target.closest(".boon-reward");
-    if (!rewardInput) return;
-    const data = TextEditor.getDragEventData(event);
-    if (!["Item", "ActiveEffect"].includes(data?.type)) return;
-    event.preventDefault();
-    const uuidLink = buildUuidLink(data);
-    if (!uuidLink) {
-      ui.notifications.warn("INDYVENTURES.Errors.BoonDropMissingUuid", { localize: true });
+    if (rewardInput) {
+      const data = TextEditor.getDragEventData(event);
+      if (!["Item", "ActiveEffect"].includes(data?.type)) return;
+      event.preventDefault();
+      const uuidLink = buildUuidLink(data);
+      if (!uuidLink) {
+        ui.notifications.warn("INDYVENTURES.Errors.BoonDropMissingUuid", { localize: true });
+        return;
+      }
+      rewardInput.value = uuidLink;
+      rewardInput.dispatchEvent(new Event("input", { bubbles: true }));
       return;
     }
-    rewardInput.value = uuidLink;
-    rewardInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const groupDrop = event.target.closest(".indy-boon-group-drop");
+    if (!groupDrop) return;
+    const boonId = String(event.dataTransfer?.getData("text/plain") ?? "");
+    if (!boonId) return;
+    event.preventDefault();
+    groupDrop.classList.remove("is-over");
+    assignBoonToGroup(root, boonId, String(groupDrop.dataset.groupId ?? ""));
+  });
+
+  root.addEventListener("dragstart", event => {
+    const chip = event.target.closest(".indy-boon-chip");
+    if (!chip) return;
+    const boonId = String(chip.dataset.boonId ?? "");
+    if (!boonId) return;
+    event.dataTransfer?.setData("text/plain", boonId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  });
+
+  root.addEventListener("dragover", event => {
+    const groupDrop = event.target.closest(".indy-boon-group-drop");
+    if (!groupDrop) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    groupDrop.classList.add("is-over");
+  });
+
+  root.addEventListener("dragleave", event => {
+    const groupDrop = event.target.closest(".indy-boon-group-drop");
+    if (!groupDrop) return;
+    const related = event.relatedTarget;
+    if (related instanceof HTMLElement && groupDrop.contains(related)) return;
+    groupDrop.classList.remove("is-over");
+  });
+
+  root.addEventListener("change", event => {
+    const groupName = event.target.closest(".indy-boon-group-name");
+    if (groupName) {
+      updateBoonGroupName(root, String(groupName.dataset.groupId ?? ""), groupName.value);
+      return;
+    }
+
+    const groupLimit = event.target.closest(".indy-boon-group-limit");
+    if (groupLimit) {
+      updateBoonGroupLimit(root, String(groupLimit.dataset.groupId ?? ""), groupLimit.value);
+      return;
+    }
+
+    if (event.target.closest(".boon-name")) {
+      renderBoonGroupCards(root);
+    }
   });
 }
 
@@ -679,7 +1006,9 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
     actions: {
       addBoonRow: BoonEditorApplication.#onAddRow,
+      addBoonGroup: BoonEditorApplication.#onAddGroup,
       buildBoonModifierReward: BoonEditorApplication.#onBuildModifierReward,
+      removeBoonGroup: BoonEditorApplication.#onRemoveGroup,
       removeBoonRow: BoonEditorApplication.#onRemoveRow,
       saveBoonEditor: BoonEditorApplication.#onSave,
       cancelBoonEditor: BoonEditorApplication.#onCancel
@@ -728,9 +1057,17 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   static #onAddRow(event, target) {
-    const rows = this.element?.querySelector?.("[data-boon-rows]");
+    const root = this.element;
+    const rows = root?.querySelector?.("[data-boon-rows]");
     if (!rows) return;
-    rows.append(createBoonRowElement(this.element.ownerDocument));
+    rows.append(createBoonRowElement(root.ownerDocument));
+    renderBoonGroupCards(root);
+  }
+
+  static #onAddGroup(event, target) {
+    const root = this.element;
+    if (!root) return;
+    addBoonGroup(root);
   }
 
   static async #onBuildModifierReward(event, target) {
@@ -808,16 +1145,28 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   static #onRemoveRow(event, target) {
-    const rows = this.element?.querySelector?.("[data-boon-rows]");
+    const root = this.element;
+    const rows = root?.querySelector?.("[data-boon-rows]");
     const row = target.closest(".indy-boon-row");
     if (!rows || !row) return;
     if (rows.querySelectorAll(".indy-boon-row").length <= 1) {
       for (const input of row.querySelectorAll("input")) input.value = "";
       const select = row.querySelector(".boon-purchase-when");
       if (select) select.value = "default";
+      row.dataset.groupId = "";
+      renderBoonGroupCards(root);
       return;
     }
     row.remove();
+    renderBoonGroupCards(root);
+  }
+
+  static #onRemoveGroup(event, target) {
+    const root = this.element;
+    if (!root) return;
+    const groupId = String(target?.dataset?.groupId ?? "").trim();
+    if (!groupId) return;
+    removeBoonGroup(root, groupId);
   }
 
   static async #onSave(event, target) {
@@ -859,11 +1208,21 @@ async function openBoonEditor(textarea, facility = null) {
   const parsed = parseBoonsText(textarea.value ?? "").map(boon => {
     const limitValue = boon.perTurnLimit;
     const groupLimitValue = boon.groupPerTurnLimit;
+    const rewardUuid = String(boon.rewardUuid ?? "").trim();
+    const rewardLabel = String(boon.rewardLabel ?? "").trim();
+    let reward = rewardUuid;
+    if (rewardUuid) {
+      const resolved = resolveRewardDocumentSync(rewardUuid);
+      const label = (rewardLabel && (rewardLabel !== rewardUuid))
+        ? rewardLabel
+        : (resolved?.name ?? "");
+      reward = buildRewardReference(rewardUuid, label);
+    }
     return {
       name: boon.name ?? "",
       cost: boon.cost ?? 0,
       description: boon.description ?? "",
-      rewardUuid: boon.rewardUuid ?? "",
+      reward,
       perTurnLimitDisplay: limitValue === null ? "unlimited" : ((limitValue ?? 1) === 1 ? "" : String(limitValue)),
       purchaseWhen: normalizePurchaseWhenText(boon.purchaseWhen),
       group: String(boon.group ?? "").trim(),
@@ -875,7 +1234,7 @@ async function openBoonEditor(textarea, facility = null) {
       name: "",
       cost: 0,
       description: "",
-      rewardUuid: "",
+      reward: "",
       perTurnLimitDisplay: "",
       purchaseWhen: "default",
       group: "",

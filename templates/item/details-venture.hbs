@@ -64,6 +64,16 @@
   </div>
 
   <div class="form-group">
+    <label>{{ localize "INDYVENTURES.Sheet.NaturalOneDegradesProfitDie" }}</label>
+    <div class="form-fields">
+      <input type="checkbox"
+             name="flags.indy-ventures.config.naturalOneDegradesProfitDie"
+             {{ checked indyVentures.config.naturalOneDegradesProfitDie }}>
+    </div>
+    <p class="hint">{{ localize "INDYVENTURES.Sheet.NaturalOneDegradesProfitDieHint" }}</p>
+  </div>
+
+  <div class="form-group">
     <label>{{ localize "INDYVENTURES.Sheet.AutoUseTreasuryLoss" }}</label>
     <div class="form-fields">
       <input type="checkbox"
@@ -94,7 +104,6 @@
             <col class="col-cost">
             <col class="col-reward">
             <col class="col-count">
-            <col class="col-group">
             <col class="col-window">
           </colgroup>
           <thead>
@@ -103,7 +112,6 @@
               <th>{{ localize "INDYVENTURES.Sheet.BoonTableCost" }}</th>
               <th>{{ localize "INDYVENTURES.Sheet.BoonTableReward" }}</th>
               <th>{{ localize "INDYVENTURES.Sheet.BoonTableCount" }}</th>
-              <th>{{ localize "INDYVENTURES.Sheet.BoonTableGroup" }}</th>
               <th>{{ localize "INDYVENTURES.Sheet.BoonTableWindow" }}</th>
             </tr>
           </thead>
@@ -132,7 +140,6 @@
                     {{/if}}
                   </td>
                   <td>{{ countDisplay }}</td>
-                  <td>{{ groupDisplay }}</td>
                   <td>
                     <i class="{{ purchaseWhenIcon }}" data-tooltip="{{ purchaseWhenLabel }}" aria-label="{{ purchaseWhenLabel }}"></i>
                   </td>
@@ -140,7 +147,7 @@
               {{/each}}
             {{else}}
               <tr>
-                <td colspan="6" class="hint">{{ localize "INDYVENTURES.Sheet.BoonTableEmpty" }}</td>
+                <td colspan="5" class="hint">{{ localize "INDYVENTURES.Sheet.BoonTableEmpty" }}</td>
               </tr>
             {{/if}}
           </tbody>

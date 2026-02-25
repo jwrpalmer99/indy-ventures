@@ -59,6 +59,7 @@ function buildFacilityData(spec, sort) {
           gpPerPoint: 100,
           autoUseTreasuryLoss: true,
           autoCoverLoss: false,
+          naturalOneDegradesProfitDie: true,
           successThreshold: 3,
           boonsText: ""
         },

@@ -59,15 +59,11 @@
 }
 
 .indy-ventures-sheet .indy-boons-table .col-reward {
-  width: 39%;
+  width: 53%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-count {
   width: 10%;
-}
-
-.indy-ventures-sheet .indy-boons-table .col-group {
-  width: 14%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-window {
@@ -269,6 +265,14 @@
   font-weight: 700;
 }
 
+.indy-ventures-card .indy-natural-one-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #8f2b2b;
+  font-weight: 700;
+}
+
 .indy-ventures-card .indy-venture-boons {
   display: grid;
   gap: 0.45rem;
@@ -385,7 +389,7 @@
 .indy-boon-editor .indy-boon-head,
 .indy-boon-editor .indy-boon-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1.2fr) 90px minmax(180px, 1.3fr) minmax(220px, 1.5fr) 120px minmax(170px, 1.2fr) minmax(130px, 1fr) 120px 36px;
+  grid-template-columns: minmax(170px, 1.2fr) 90px minmax(200px, 1.45fr) minmax(220px, 1.55fr) 120px 190px 36px;
   gap: 0.35rem;
   align-items: center;
 }
@@ -432,6 +436,124 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
+}
+
+.indy-boon-groups-section {
+  margin-top: 0.7rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.indy-boon-groups-section .indy-boon-groups-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.45rem 0.55rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.indy-boon-groups-section .indy-boon-groups-toggle::marker,
+.indy-boon-groups-section .indy-boon-groups-toggle::-webkit-details-marker {
+  display: none;
+  content: "";
+}
+
+.indy-boon-groups-section .indy-boon-groups-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.indy-boon-groups-section .indy-boon-groups-glyph {
+  font-size: 0.78rem;
+  transition: transform 140ms ease;
+}
+
+.indy-boon-groups-section[open] .indy-boon-groups-glyph {
+  transform: rotate(90deg);
+}
+
+.indy-boon-groups-section .indy-boon-groups-toggle .hint {
+  margin: 0;
+}
+
+.indy-boon-groups-section .indy-boon-groups-body {
+  padding: 0.45rem 0.55rem 0.55rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.indy-boon-groups-section .indy-boon-groups-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.indy-boon-groups-section .indy-boon-groups-cards {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.indy-boon-groups-section .indy-boon-group-card {
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 6px;
+  padding: 0.4rem;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.indy-boon-groups-section .indy-boon-group-card-header {
+  display: grid;
+  gap: 0.3rem;
+  grid-template-columns: minmax(0, 1fr) 108px 34px;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.indy-boon-groups-section .indy-boon-group-card-header .indy-boon-group-name,
+.indy-boon-groups-section .indy-boon-group-card-header .indy-boon-group-limit {
+  width: 100%;
+}
+
+.indy-boon-groups-section .indy-boon-group-drop {
+  min-height: 2.1rem;
+  border: 1px dashed rgba(0, 0, 0, 0.24);
+  border-radius: 5px;
+  padding: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  align-content: flex-start;
+}
+
+.indy-boon-groups-section .indy-boon-group-drop.is-over {
+  background: rgba(48, 80, 140, 0.09);
+  border-color: rgba(48, 80, 140, 0.55);
+}
+
+.indy-boon-groups-section .indy-boon-chip {
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  line-height: 1.2;
+  font-size: 0.78rem;
+  cursor: grab;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-boon-groups-section .indy-boon-chip:active {
+  cursor: grabbing;
+}
+
+.indy-boon-groups-section .indy-boon-group-empty {
+  opacity: 0.7;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.2rem;
 }
 
 .indy-boon-modifier-scroll {

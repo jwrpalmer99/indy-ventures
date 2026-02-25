@@ -76,7 +76,15 @@
           <p class="hint">{{ localize "INDYVENTURES.Chat.Grew" }}</p>
         {{/if}}
         {{#if degraded}}
-          <p class="hint">{{ localize "INDYVENTURES.Chat.Degraded" }}</p>
+          {{#unless naturalOneDegraded}}
+            <p class="hint">{{ localize "INDYVENTURES.Chat.Degraded" }}</p>
+          {{/unless}}
+        {{/if}}
+        {{#if naturalOneDegraded}}
+          <p class="hint indy-natural-one-line">
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+            {{ localize "INDYVENTURES.Chat.NaturalOneDegraded" }}
+          </p>
         {{/if}}
         {{#if failed}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.Failed" }}</p>

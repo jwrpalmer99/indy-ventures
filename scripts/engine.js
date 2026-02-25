@@ -935,6 +935,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   const income = profitRollTotal * gpPerPoint;
   const outgoings = Number(lossRoll.total) * gpPerPoint;
   const net = income - outgoings;
+  const rolledNaturalOne = rawProfitRollTotal === 1;
+  const naturalOnePenaltyApplies = Boolean(config.naturalOneDegradesProfitDie) && rolledNaturalOne;
   state.lastTurnNet = net;
 
   let coveredDeficit = false;
@@ -951,18 +953,25 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   let hasCoverageSources = false;
   let grew = false;
   let degraded = false;
+  let naturalOneDegraded = false;
   let failed = false;
   let deficit = 0;
 
-  if (net >= 0) {
+  if (net > 0) {
     state.treasury += net;
-    state.streak += 1;
-    if (state.streak >= effectiveSuccessThreshold) {
-      state.currentProfitDie = shiftDie(state.currentProfitDie, 1);
+    if (!naturalOnePenaltyApplies) {
+      state.streak += 1;
+      if (state.streak >= effectiveSuccessThreshold) {
+        state.currentProfitDie = shiftDie(state.currentProfitDie, 1);
+        state.streak = 0;
+        grew = true;
+        markModifiersForDeletion(modifierDurationUsage, effectModifiers.growConsumableEffects, "grown");
+      }
+    } else {
       state.streak = 0;
-      grew = true;
-      markModifiersForDeletion(modifierDurationUsage, effectModifiers.growConsumableEffects, "grown");
     }
+  } else if (net === 0) {
+    // Break-even does not advance streak.
   } else {
     deficit = Math.abs(net);
     state.streak = 0;
@@ -1007,6 +1016,20 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       state.currentProfitDie = applyMinimumDie(downgraded, effectModifiers.aggregate.minProfitDie);
       degraded = dieIndex(state.currentProfitDie) < dieIndex(previousDie);
     }
+  }
+
+  // A raw profit roll of 1 causes a one-step profit die downgrade (if possible).
+  // This applies even if losses were fully covered.
+  if (naturalOnePenaltyApplies && !failed && !degraded) {
+    const previousDie = state.currentProfitDie;
+    const downgraded = shiftDie(state.currentProfitDie, -1);
+    state.currentProfitDie = applyMinimumDie(downgraded, effectModifiers.aggregate.minProfitDie);
+    naturalOneDegraded = dieIndex(state.currentProfitDie) < dieIndex(previousDie);
+    if (naturalOneDegraded) {
+      degraded = true;
+      grew = false;
+    }
+    state.streak = 0;
   }
 
   const boons = parseBoonsFromConfig(config).map((boon, index) => {
@@ -1078,6 +1101,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       gpPerPoint: config.gpPerPoint,
       successThreshold: config.successThreshold,
       effectiveSuccessThreshold,
+      naturalOneDegradesProfitDie: Boolean(config.naturalOneDegradesProfitDie),
       autoCoverLoss: config.autoCoverLoss,
       autoUseTreasuryLoss: config.autoUseTreasuryLoss
     },
@@ -1086,6 +1110,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       profitDieRolled: rolledProfitDie,
       lossDieRolled: lossDie,
       rawProfitRollTotal,
+      rolledNaturalOne,
+      naturalOnePenaltyApplies,
       profitRollBonus,
       profitRollTotal,
       lossRollTotal: Number(lossRoll.total),
@@ -1155,6 +1181,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     treasury: state.treasury,
     grew,
     degraded,
+    naturalOneDegraded,
     failed,
     boons,
     modifierEffects

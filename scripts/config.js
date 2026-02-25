@@ -43,6 +43,7 @@ export function sanitizeConfig(raw = {}, facility = null) {
     gpPerPoint: 100,
     autoUseTreasuryLoss: true,
     autoCoverLoss: false,
+    naturalOneDegradesProfitDie: true,
     successThreshold: 3,
     boonsText: ""
   };
@@ -57,6 +58,7 @@ export function sanitizeConfig(raw = {}, facility = null) {
   merged.gpPerPoint = Math.max(asInteger(merged.gpPerPoint, 100), 0);
   merged.autoUseTreasuryLoss = asBoolean(merged.autoUseTreasuryLoss, true);
   merged.autoCoverLoss = asBoolean(merged.autoCoverLoss, false);
+  merged.naturalOneDegradesProfitDie = asBoolean(merged.naturalOneDegradesProfitDie, true);
   merged.successThreshold = clamp(asInteger(merged.successThreshold, 3), 1, 12);
   merged.boonsText = String(merged.boonsText ?? "");
   delete merged.preset;
