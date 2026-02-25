@@ -9,6 +9,8 @@
       <span>{{ localize "INDYVENTURES.BoonEditor.Reward" }}</span>
       <span>{{ localize "INDYVENTURES.BoonEditor.Limit" }}</span>
       <span>{{ localize "INDYVENTURES.BoonEditor.PurchaseWhen" }}</span>
+      <span>{{ localize "INDYVENTURES.BoonEditor.Group" }}</span>
+      <span>{{ localize "INDYVENTURES.BoonEditor.GroupLimit" }}</span>
       <span></span>
     </div>
 
@@ -29,6 +31,8 @@
           <select class="boon-purchase-when">
             {{ selectOptions ../purchaseWhenOptions selected=purchaseWhen localize=false }}
           </select>
+          <input type="text" class="boon-group" placeholder="{{ localize "INDYVENTURES.BoonEditor.GroupPlaceholder" }}" value="{{ group }}">
+          <input type="text" class="boon-group-limit" placeholder="{{ localize "INDYVENTURES.BoonEditor.GroupLimitPlaceholder" }}" value="{{ groupLimit }}">
           <button type="button" class="boon-remove icon fa-solid fa-trash" data-action="removeBoonRow" aria-label="{{ localize "INDYVENTURES.BoonEditor.Remove" }}"></button>
         </div>
       {{/each}}

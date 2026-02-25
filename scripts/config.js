@@ -41,6 +41,7 @@ export function sanitizeConfig(raw = {}, facility = null) {
     lossDie: "d6",
     lossModifier: 0,
     gpPerPoint: 100,
+    autoUseTreasuryLoss: true,
     autoCoverLoss: false,
     successThreshold: 3,
     boonsText: ""
@@ -54,6 +55,7 @@ export function sanitizeConfig(raw = {}, facility = null) {
   merged.lossDie = normalizeDie(merged.lossDie, "d6");
   merged.lossModifier = clamp(asInteger(merged.lossModifier, 0), -4, 4);
   merged.gpPerPoint = Math.max(asInteger(merged.gpPerPoint, 100), 0);
+  merged.autoUseTreasuryLoss = asBoolean(merged.autoUseTreasuryLoss, true);
   merged.autoCoverLoss = asBoolean(merged.autoCoverLoss, false);
   merged.successThreshold = clamp(asInteger(merged.successThreshold, 3), 1, 12);
   merged.boonsText = String(merged.boonsText ?? "");
@@ -192,6 +194,8 @@ export function prepareFacilitySheetContext(facility) {
   const state = getFacilityState(facility, config);
   const boons = parseBoonsFromConfig(config).map((boon, index) => {
     const perTurnLimit = parseBoonPerTurnLimit(boon.perTurnLimit, 1);
+    const groupName = String(boon.group ?? "").trim();
+    const groupPerTurnLimit = parseBoonPerTurnLimit(boon.groupPerTurnLimit, null);
     const purchaseWhen = parseBoonPurchaseWhen(boon.purchaseWhen, "default");
     const rewardUuid = String(boon.rewardUuid ?? "").trim();
 
@@ -222,7 +226,10 @@ export function prepareFacilitySheetContext(facility) {
       rewardUuid,
       rewardName,
       rewardImg,
-      countDisplay: perTurnLimit === null ? "∞" : String(perTurnLimit),
+      countDisplay: perTurnLimit === null ? game.i18n.localize("INDYVENTURES.Chat.Unlimited") : String(perTurnLimit),
+      groupDisplay: groupName
+        ? (groupPerTurnLimit === null ? groupName : `${groupName} (${groupPerTurnLimit})`)
+        : "-",
       purchaseWhenIcon,
       purchaseWhenLabel
     };

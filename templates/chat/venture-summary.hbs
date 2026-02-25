@@ -21,13 +21,22 @@
         {{#if profitRollBonus}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.ProfitRollBonus" bonus=profitRollBonus raw=rawProfitRollTotal total=profitRollTotal }}</p>
         {{/if}}
-        <p class="hint">{{ localize "INDYVENTURES.Chat.NextProfitDie" die=nextProfitDie }}</p>
-        <p>
-          {{ localize "INDYVENTURES.Chat.NetLine"
-            income=income
-            outgoings=outgoings
-            net=net
-            treasury=treasury }}
+        <p class="hint indy-profit-die-line {{ profitDieChangeClass }}">
+          {{#if grew}}
+            {{ localize "INDYVENTURES.Chat.ProfitDieIncreased" from=previousProfitDie to=nextProfitDie }}
+          {{else}}
+            {{#if degraded}}
+              {{ localize "INDYVENTURES.Chat.ProfitDieDecreased" from=previousProfitDie to=nextProfitDie }}
+            {{else}}
+              {{ localize "INDYVENTURES.Chat.NextProfitDie" die=nextProfitDie }}
+            {{/if}}
+          {{/if}}
+        </p>
+        <p class="indy-net-line">
+          <span>{{ localize "INDYVENTURES.Chat.IncomeLabel" }}: {{ income }} gp</span> |
+          <span>{{ localize "INDYVENTURES.Chat.OutgoingsLabel" }}: {{ outgoings }} gp</span> |
+          <span class="indy-net-value {{ netClass }}">{{ localize "INDYVENTURES.Chat.NetLabel" }}: {{ net }} gp</span> |
+          <span>{{ localize "INDYVENTURES.Chat.TreasuryLabel" }}: {{ treasury }} gp</span>
         </p>
         {{#if treasury}}
           <div class="indy-venture-actions">
@@ -114,6 +123,13 @@
                   {{#unless perTurnLimit}}
                     <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonTurnLimitUnlimited" purchased=purchasedThisTurn }}</p>
                   {{/unless}}
+                  {{#if group}}
+                    {{#if groupPerTurnLimit}}
+                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimit" group=group purchased=purchasedInGroupThisTurn limit=groupPerTurnLimit }}</p>
+                    {{else}}
+                      <p class="hint boon-meta">{{ localize "INDYVENTURES.Chat.BoonGroupLimitUnlimited" group=group purchased=purchasedInGroupThisTurn }}</p>
+                    {{/if}}
+                  {{/if}}
                   {{#if rewardUuid}}
                     <p class="hint boon-meta">
                       {{ localize "INDYVENTURES.Chat.BoonRewardLabel" }}

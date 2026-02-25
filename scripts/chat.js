@@ -6,6 +6,7 @@ import {
   updateFacilityVenture
 } from "./config.js";
 import {
+  buildBoonGroupKey,
   buildBoonKey,
   boonPurchaseWhenAllows,
   getActorGp,
@@ -292,27 +293,38 @@ function resolveBoonByIndexOrKey(boons, requestedIndex, requestedKey = "") {
 function withBoonAvailability(boon, state, boonIndex, turnNet = null) {
   const reward = resolveRewardDisplayFromBoon(boon);
   const boonKey = String(boon?.key ?? buildBoonKey(boon));
+  const group = String(boon?.group ?? "").trim();
+  const groupKey = String(boon?.groupKey ?? buildBoonGroupKey(boon));
+  const groupPerTurnLimit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
   const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
   const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
   const purchasedThisTurn = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
+  const purchasedInGroupThisTurn = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
   const affordable = state.treasury >= boon.cost;
   const underTurnLimit = (perTurnLimit === null) || (purchasedThisTurn < perTurnLimit);
+  const underGroupTurnLimit = !groupKey || (groupPerTurnLimit === null) || (purchasedInGroupThisTurn < groupPerTurnLimit);
   const net = Number(turnNet ?? state?.lastTurnNet ?? 0) || 0;
   const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
   return {
     ...boon,
+    group,
+    groupKey,
+    groupPerTurnLimit,
+    purchasedInGroupThisTurn,
+    remainingGroupPurchases: groupPerTurnLimit === null ? null : Math.max(groupPerTurnLimit - purchasedInGroupThisTurn, 0),
     key: boonKey,
     perTurnLimit,
     purchaseWhen,
     purchaseWhenAllowed,
     purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
+    blockedByGroupLimit: !underGroupTurnLimit,
     blockedByWindow: !purchaseWhenAllowed,
     rewardName: reward.rewardName,
     rewardImg: reward.rewardImg,
     purchasedThisTurn,
     remainingPurchases: perTurnLimit === null ? null : Math.max(perTurnLimit - purchasedThisTurn, 0),
     affordable,
-    purchasable: affordable && underTurnLimit && purchaseWhenAllowed
+    purchasable: affordable && underTurnLimit && underGroupTurnLimit && purchaseWhenAllowed
   };
 }
 
@@ -655,7 +667,9 @@ async function onPurchaseBoon(message, button) {
   if (!purchaseState.purchasable) {
     const key = purchaseState.blockedByWindow
       ? "INDYVENTURES.Errors.BoonPurchaseWindowBlocked"
-      : (purchaseState.affordable ? "INDYVENTURES.Errors.BoonTurnLimitReached" : "INDYVENTURES.Errors.NotEnoughTreasury");
+      : (purchaseState.blockedByGroupLimit
+          ? "INDYVENTURES.Errors.BoonGroupTurnLimitReached"
+          : (purchaseState.affordable ? "INDYVENTURES.Errors.BoonTurnLimitReached" : "INDYVENTURES.Errors.NotEnoughTreasury"));
     moduleLog("Boon purchase blocked", {
       actor: actor.name,
       facility: facility.name,
@@ -668,20 +682,30 @@ async function onPurchaseBoon(message, button) {
       affordable: purchaseState.affordable,
       purchasedThisTurn: purchaseState.purchasedThisTurn,
       perTurnLimit: purchaseState.perTurnLimit,
+      group: purchaseState.group,
+      groupPerTurnLimit: purchaseState.groupPerTurnLimit,
+      purchasedInGroupThisTurn: purchaseState.purchasedInGroupThisTurn,
       purchaseWhen: purchaseState.purchaseWhen,
       purchaseWhenAllowed: purchaseState.purchaseWhenAllowed
     });
     ui.notifications.warn(game.i18n.format(key, {
       boon: boon.name,
-      limit: purchaseState.perTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"),
-      purchased: purchaseState.purchasedThisTurn,
-      mode: purchaseState.purchaseWhenLabel
+      limit: purchaseState.blockedByGroupLimit
+        ? (purchaseState.groupPerTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"))
+        : (purchaseState.perTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited")),
+      purchased: purchaseState.blockedByGroupLimit
+        ? purchaseState.purchasedInGroupThisTurn
+        : purchaseState.purchasedThisTurn,
+      mode: purchaseState.purchaseWhenLabel,
+      group: purchaseState.group || "-"
     }));
     return;
   }
 
   const boonKey = String(purchaseState.key ?? buildBoonKey(boon));
+  const groupKey = String(purchaseState.groupKey ?? "");
   const previousPurchaseCount = getBoonPurchasesThisTurn(state, boonIndex, boonKey);
+  const previousGroupPurchaseCount = groupKey ? getBoonPurchasesThisTurn(state, boonIndex, groupKey) : 0;
   const previousTreasury = state.treasury;
   state.treasury -= boon.cost;
   state.boonPurchases = {
@@ -689,6 +713,7 @@ async function onPurchaseBoon(message, button) {
     [boonKey]: previousPurchaseCount + 1,
     [String(boonIndex)]: previousPurchaseCount + 1
   };
+  if (groupKey) state.boonPurchases[groupKey] = previousGroupPurchaseCount + 1;
   await updateFacilityVenture(facility, config, state);
   moduleLog("Boon purchase: funds reserved", {
     actor: actor.name,
@@ -714,6 +739,10 @@ async function onPurchaseBoon(message, button) {
       } else {
         delete state.boonPurchases[boonKey];
         delete state.boonPurchases[String(boonIndex)];
+      }
+      if (groupKey) {
+        if (previousGroupPurchaseCount > 0) state.boonPurchases[groupKey] = previousGroupPurchaseCount;
+        else delete state.boonPurchases[groupKey];
       }
       await updateFacilityVenture(facility, config, state);
       ui.notifications.error(error.message);

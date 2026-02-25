@@ -179,6 +179,14 @@ function normalizeLimitText(value) {
   return String(limit);
 }
 
+function normalizeGroupLimitText(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const limit = parseBoonPerTurnLimit(raw, null);
+  if (limit === null) return "";
+  return String(limit);
+}
+
 function normalizePurchaseWhenText(value) {
   return parseBoonPurchaseWhen(value, "default");
 }
@@ -523,11 +531,15 @@ function buildBoonLine(row) {
   const reward = String(row.reward ?? "").trim();
   const limit = normalizeLimitText(row.limit);
   const purchaseWhen = normalizePurchaseWhenText(row.purchaseWhen);
+  const group = String(row.group ?? "").trim();
+  const groupLimit = normalizeGroupLimitText(row.groupLimit);
 
   const parts = [name, String(cost), description];
   if (reward) parts.push(reward);
   if (limit) parts.push(limit);
   if (purchaseWhen !== "default") parts.push(purchaseWhen);
+  if (group) parts.push(`group=${group}`);
+  if (group && groupLimit) parts.push(`group-limit=${groupLimit}`);
   return parts.join(" | ");
 }
 
@@ -540,7 +552,9 @@ function serializeBoonRows(root) {
       description: row.querySelector(".boon-description")?.value,
       reward: row.querySelector(".boon-reward")?.value,
       limit: row.querySelector(".boon-limit")?.value,
-      purchaseWhen: row.querySelector(".boon-purchase-when")?.value
+      purchaseWhen: row.querySelector(".boon-purchase-when")?.value,
+      group: row.querySelector(".boon-group")?.value,
+      groupLimit: row.querySelector(".boon-group-limit")?.value
     }))
     .filter(Boolean);
   return lines.join("\n");
@@ -610,6 +624,18 @@ function createBoonRowElement(doc, values = {}) {
     purchaseWhenSelect.append(element);
   }
   row.append(purchaseWhenSelect);
+
+  row.append(makeInput({
+    cls: "boon-group",
+    placeholder: game.i18n.localize("INDYVENTURES.BoonEditor.GroupPlaceholder"),
+    value: values.group ?? ""
+  }));
+
+  row.append(makeInput({
+    cls: "boon-group-limit",
+    placeholder: game.i18n.localize("INDYVENTURES.BoonEditor.GroupLimitPlaceholder"),
+    value: values.groupLimit ?? ""
+  }));
 
   const remove = doc.createElement("button");
   remove.type = "button";
@@ -832,13 +858,16 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
 async function openBoonEditor(textarea, facility = null) {
   const parsed = parseBoonsText(textarea.value ?? "").map(boon => {
     const limitValue = boon.perTurnLimit;
+    const groupLimitValue = boon.groupPerTurnLimit;
     return {
       name: boon.name ?? "",
       cost: boon.cost ?? 0,
       description: boon.description ?? "",
       rewardUuid: boon.rewardUuid ?? "",
       perTurnLimitDisplay: limitValue === null ? "unlimited" : ((limitValue ?? 1) === 1 ? "" : String(limitValue)),
-      purchaseWhen: normalizePurchaseWhenText(boon.purchaseWhen)
+      purchaseWhen: normalizePurchaseWhenText(boon.purchaseWhen),
+      group: String(boon.group ?? "").trim(),
+      groupLimit: groupLimitValue === null ? "" : String(groupLimitValue)
     };
   });
   if (!parsed.length) {
@@ -848,7 +877,9 @@ async function openBoonEditor(textarea, facility = null) {
       description: "",
       rewardUuid: "",
       perTurnLimitDisplay: "",
-      purchaseWhen: "default"
+      purchaseWhen: "default",
+      group: "",
+      groupLimit: ""
     });
   }
   const app = new BoonEditorApplication({ textarea, rows: parsed, facility });

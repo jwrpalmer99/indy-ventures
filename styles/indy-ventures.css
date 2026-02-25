@@ -51,23 +51,27 @@
 }
 
 .indy-ventures-sheet .indy-boons-table .col-title {
-  width: 20%;
+  width: 18%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-cost {
-  width: 10%;
+  width: 9%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-reward {
-  width: 46%;
+  width: 39%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-count {
-  width: 12%;
+  width: 10%;
+}
+
+.indy-ventures-sheet .indy-boons-table .col-group {
+  width: 14%;
 }
 
 .indy-ventures-sheet .indy-boons-table .col-window {
-  width: 12%;
+  width: 10%;
 }
 
 .indy-ventures-sheet .indy-boons-table th:last-child,
@@ -234,6 +238,37 @@
   margin: 0.25rem 0;
 }
 
+.indy-ventures-card .indy-net-line .indy-net-value {
+  font-weight: 700;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.25rem;
+}
+
+.indy-ventures-card .indy-net-line .indy-net-value.is-positive {
+  color: #1d5e27;
+  background: rgba(29, 94, 39, 0.12);
+}
+
+.indy-ventures-card .indy-net-line .indy-net-value.is-negative {
+  color: #8f2b2b;
+  background: rgba(143, 43, 43, 0.12);
+}
+
+.indy-ventures-card .indy-net-line .indy-net-value.is-neutral {
+  color: #63533f;
+  background: rgba(99, 83, 63, 0.12);
+}
+
+.indy-ventures-card .indy-profit-die-line.is-increase {
+  color: #1d5e27;
+  font-weight: 700;
+}
+
+.indy-ventures-card .indy-profit-die-line.is-decrease {
+  color: #8f2b2b;
+  font-weight: 700;
+}
+
 .indy-ventures-card .indy-venture-boons {
   display: grid;
   gap: 0.45rem;
@@ -350,7 +385,7 @@
 .indy-boon-editor .indy-boon-head,
 .indy-boon-editor .indy-boon-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.2fr) 90px minmax(200px, 1.45fr) minmax(220px, 1.55fr) 120px 190px 36px;
+  grid-template-columns: minmax(160px, 1.2fr) 90px minmax(180px, 1.3fr) minmax(220px, 1.5fr) 120px minmax(170px, 1.2fr) minmax(130px, 1fr) 120px 36px;
   gap: 0.35rem;
   align-items: center;
 }

@@ -1,17 +1,21 @@
 # Indy Ventures
 
-`indy-ventures` adds venture-style business automation to D&D5e bastions (Foundry VTT v13, dnd5e 5.2.5+).
+`indy-ventures` adds venture-style automation to D&D5e bastions. Spice up your bastions! 
 
 ## Features
+
+- This module integrates the idea of Ventures from https://blackcitadelrpg.com/running-a-business-5e/ into DnD5e Bastions - spice up your Bastions!
 
 - Adds a **Venture Automation** section to each D&D5e `facility` item sheet.
 - Adds `Indy Ventures` compendium folder with:
   - `Venture Facilities` item pack
   - `Venture Macros` macro pack
 - Provides ready-to-drop special facilities:
-  - `Venture Facility (Cramped)`
-  - `Venture Facility (Roomy)`
-  - `Venture Facility (Vast)`
+  - `Venture Facility`
+  - Example `Apothecary`
+  - Example `Tavern`
+  - Example `Cult`
+  
 - Resolves venture profit/loss on bastion turns (with prompted rolls).
 - Tracks per-facility venture state:
   - current profit die
@@ -20,8 +24,10 @@
   - failed status
 - Supports configurable boons with:
   - per-turn purchase limits
+  - shared group purchase limits (group + group turn limit)
   - purchase windows (any turn / loss-or-break-even / profit-or-break-even)
   - item rewards and Active Effect rewards
+  - text description only boons where the GM will manage the effect
 - Supports venture modifier Active Effects (profit/loss die changes, growth threshold override, roll bonus, durations).
 - Posts a venture summary chat card with:
   - boon purchase buttons
@@ -45,6 +51,7 @@
    - Loss Die Modifier
    - Gold per Point (GP)
    - Successes to Grow
+   - Auto-use Venture Treasury for Losses
    - Auto-cover Deficits
 5. Click **Open Boon Editor** to manage boons (recommended).
 
@@ -65,13 +72,10 @@ Use these flags for effects that should tick on bastion turns:
 - `flags.indy-ventures.bastionDuration.durationFormula` (roll formula)
 - `flags.indy-ventures.bastionDuration.consumePerTurn` (`true`/`false`)
 
-Legacy `flags.indy-ventures.bastionDuration.type` is no longer supported.
-
 ## Notes / Behavior
 
-- One bastion turn is treated as one venture month.
-- Venture treasury is always used first to absorb losses.
 - If **Auto-cover Deficits** is enabled, any remaining deficit is paid from the actor's GP before degrading profit die.
+- If **Auto-use Venture Treasury for Losses** is enabled, treasury is spent first on deficits.
 - If **Auto-cover Deficits** is disabled and the actor has enough GP for the remainder, the module prompts an active owner (prefers non-GM owner) to decide whether to cover it.
 - When a venture fails at `d4` profit die with uncovered losses, it is disabled.
 - When venture automation is enabled on a facility, the standard facility order/crafting sections are hidden.

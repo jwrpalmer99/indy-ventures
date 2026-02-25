@@ -6,6 +6,7 @@ import {
   updateFacilityVenture
 } from "./config.js";
 import {
+  buildBoonGroupKey,
   buildBoonKey,
   boonPurchaseWhenAllows,
   parseBoonPerTurnLimit,
@@ -966,9 +967,13 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     deficit = Math.abs(net);
     state.streak = 0;
 
-    // Venture treasury always covers losses first; character GP handles any remainder.
-    treasuryCovered = Math.min(state.treasury, deficit);
-    state.treasury -= treasuryCovered;
+    // Optionally apply venture treasury first; character funds handle any remainder.
+    if (config.autoUseTreasuryLoss) {
+      treasuryCovered = Math.min(state.treasury, deficit);
+      state.treasury -= treasuryCovered;
+    } else {
+      treasuryCovered = 0;
+    }
     const characterDeficit = Math.max(deficit - treasuryCovered, 0);
 
     const coverage = await maybeCoverCharacterDeficit({
@@ -1007,24 +1012,35 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   const boons = parseBoonsFromConfig(config).map((boon, index) => {
     const reward = resolveRewardDisplayData(boon);
     const boonKey = buildBoonKey(boon);
+    const group = String(boon.group ?? "").trim();
+    const groupKey = buildBoonGroupKey(boon);
+    const groupPerTurnLimit = parseBoonPerTurnLimit(boon.groupPerTurnLimit, null);
     const purchasedThisTurn = getBoonPurchasesThisTurn(state, index, boonKey);
+    const purchasedInGroupThisTurn = groupKey ? getBoonPurchasesThisTurn(state, index, groupKey) : 0;
     const perTurnLimit = parseBoonPerTurnLimit(boon.perTurnLimit, 1);
     const purchaseWhen = parseBoonPurchaseWhen(boon.purchaseWhen, "default");
     const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
     const underTurnLimit = (perTurnLimit === null) || (purchasedThisTurn < perTurnLimit);
+    const underGroupLimit = !groupKey || (groupPerTurnLimit === null) || (purchasedInGroupThisTurn < groupPerTurnLimit);
     return {
       ...boon,
       index,
       key: boonKey,
+      group,
+      groupKey,
+      groupPerTurnLimit,
+      purchasedInGroupThisTurn,
+      remainingGroupPurchases: groupPerTurnLimit === null ? null : Math.max(groupPerTurnLimit - purchasedInGroupThisTurn, 0),
       perTurnLimit,
       purchaseWhen,
       purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
       purchaseWhenAllowed,
+      blockedByGroupLimit: !underGroupLimit,
       blockedByWindow: !purchaseWhenAllowed,
       purchasedThisTurn,
       remainingPurchases: perTurnLimit === null ? null : Math.max(perTurnLimit - purchasedThisTurn, 0),
       affordable: state.treasury >= boon.cost,
-      purchasable: (state.treasury >= boon.cost) && underTurnLimit && purchaseWhenAllowed,
+      purchasable: (state.treasury >= boon.cost) && underTurnLimit && underGroupLimit && purchaseWhenAllowed,
       rewardName: reward.rewardName,
       rewardImg: reward.rewardImg
     };
@@ -1062,7 +1078,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       gpPerPoint: config.gpPerPoint,
       successThreshold: config.successThreshold,
       effectiveSuccessThreshold,
-      autoCoverLoss: config.autoCoverLoss
+      autoCoverLoss: config.autoCoverLoss,
+      autoUseTreasuryLoss: config.autoUseTreasuryLoss
     },
     stateBefore,
     rolls: {
@@ -1107,8 +1124,10 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     facilityUuid: facility.uuid,
     facilityName: facility.name,
     ventureName: config.ventureName || facility.name,
+    previousProfitDie: stateBefore.currentProfitDie,
     profitDie: rolledProfitDie,
     nextProfitDie: state.currentProfitDie,
+    profitDieChangeClass: grew ? "is-increase" : (degraded ? "is-decrease" : ""),
     lossDie,
     rawProfitRollTotal,
     profitRollBonus,
@@ -1118,6 +1137,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     income,
     outgoings,
     net,
+    netClass: net > 0 ? "is-positive" : (net < 0 ? "is-negative" : "is-neutral"),
     deficit,
     coveredDeficit,
     autoCovered,

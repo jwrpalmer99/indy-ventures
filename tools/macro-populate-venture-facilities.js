@@ -57,6 +57,7 @@ function buildFacilityData(spec, sort) {
           lossDie: "d6",
           lossModifier: 0,
           gpPerPoint: 100,
+          autoUseTreasuryLoss: true,
           autoCoverLoss: false,
           successThreshold: 3,
           boonsText: ""

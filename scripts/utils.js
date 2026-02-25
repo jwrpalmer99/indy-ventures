@@ -80,6 +80,20 @@ export function parseBoonsText(boonsText = "") {
     return ["default", "loss", "profit", "loss-only", "loss only", "profit-only", "profit only"].includes(text);
   };
 
+  const parseGroupToken = value => {
+    const text = String(value ?? "").trim();
+    const match = text.match(/^group\s*=\s*(.+)$/i);
+    if (!match) return null;
+    return String(match[1] ?? "").trim();
+  };
+
+  const parseGroupLimitToken = value => {
+    const text = String(value ?? "").trim();
+    const match = text.match(/^group(?:[-_ ]limit|limit)\s*=\s*(.+)$/i);
+    if (!match) return null;
+    return parseBoonPerTurnLimit(String(match[1] ?? "").trim(), null);
+  };
+
   const parseRewardReference = value => {
     const text = String(value ?? "").trim();
     if (!text) return { rewardUuid: "", rewardLabel: "" };
@@ -106,12 +120,28 @@ export function parseBoonsText(boonsText = "") {
       let rewardRaw = "";
       let perTurnLimit = 1;
       let purchaseWhen = "default";
+      let group = "";
+      let groupPerTurnLimit = null;
       if (tailParts.length) {
         const tail = tailParts.map(part => part.trim());
         let foundOptionalField = false;
         let keepParsing = true;
         while (tail.length && keepParsing) {
           const tailValue = tail[tail.length - 1];
+          const groupLimit = parseGroupLimitToken(tailValue);
+          if (groupLimit !== null) {
+            groupPerTurnLimit = groupLimit;
+            tail.pop();
+            foundOptionalField = true;
+            continue;
+          }
+          const groupToken = parseGroupToken(tailValue);
+          if (groupToken !== null) {
+            group = groupToken;
+            tail.pop();
+            foundOptionalField = true;
+            continue;
+          }
           if (tailValue === "") {
             tail.pop();
             foundOptionalField = true;
@@ -139,6 +169,7 @@ export function parseBoonsText(boonsText = "") {
 
       if (!name || !Number.isFinite(cost) || cost < 0) return null;
       const { rewardUuid, rewardLabel } = parseRewardReference(rewardRaw);
+      if (!group) groupPerTurnLimit = null;
       return {
         name,
         cost,
@@ -146,7 +177,9 @@ export function parseBoonsText(boonsText = "") {
         rewardUuid,
         rewardLabel: rewardLabel || rewardUuid,
         perTurnLimit,
-        purchaseWhen
+        purchaseWhen,
+        group,
+        groupPerTurnLimit
       };
     })
     .filter(Boolean);
@@ -159,8 +192,20 @@ export function buildBoonKey(boon = {}) {
   const rewardUuid = String(boon?.rewardUuid ?? "").trim();
   const perTurnLimit = parseBoonPerTurnLimit(boon?.perTurnLimit, 1);
   const purchaseWhen = parseBoonPurchaseWhen(boon?.purchaseWhen, "default");
+  const group = String(boon?.group ?? "").trim();
+  const groupPerTurnLimit = parseBoonPerTurnLimit(boon?.groupPerTurnLimit, null);
   const limitText = perTurnLimit === null ? "unlimited" : String(perTurnLimit);
-  return [name, cost, description, rewardUuid, limitText, purchaseWhen].join("::");
+  const groupLimitText = groupPerTurnLimit === null ? "" : String(groupPerTurnLimit);
+  return [name, cost, description, rewardUuid, limitText, purchaseWhen, group, groupLimitText].join("::");
+}
+
+export function buildBoonGroupKey(boon = {}) {
+  const group = String(boon?.group ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!group) return "";
+  return `group::${group}`;
 }
 
 export function getActorGp(actor) {
