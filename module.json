@@ -1,7 +1,7 @@
 {
   "id": "indy-ventures",
   "title": "Indy Ventures",
-  "description": "Adds venture-style business automation to D&D5e bastions.",
+  "description": "Adds configurable/flexible Ventures to D&D5e bastions. Spice up your bastion life!",
   "version": "#{VERSION}#",
   "authors": [{ "name": "PinguTwo" }],
   "compatibility": {
