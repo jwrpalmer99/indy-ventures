@@ -1029,6 +1029,20 @@ async function onClaimTreasury(message, button) {
   }
 }
 
+function onToggleBoonDetails(button) {
+  const boonRow = button.closest(".indy-venture-boon");
+  if (!boonRow) return;
+  const nowCollapsed = boonRow.classList.toggle("is-collapsed");
+  const isExpanded = !nowCollapsed;
+  button.setAttribute("aria-expanded", String(isExpanded));
+  const tooltipKey = nowCollapsed
+    ? "INDYVENTURES.Chat.ExpandBoonDetails"
+    : "INDYVENTURES.Chat.CollapseBoonDetails";
+  const tooltip = game.i18n.localize(tooltipKey);
+  button.setAttribute("aria-label", tooltip);
+  button.dataset.tooltip = tooltip;
+}
+
 export function registerChatHooks() {
   Hooks.on("dnd5e.renderChatMessage", (message, html) => {
     const htmlRoot = resolveMessageHtmlRoot(html);
@@ -1054,6 +1068,10 @@ export function registerChatHooks() {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       event.preventDefault();
+      if (button.dataset.action === "toggleBoonDetails") {
+        onToggleBoonDetails(button);
+        return;
+      }
       if (button.dataset.action === "purchaseBoon") onPurchaseBoon(message, button);
       if (button.dataset.action === "claimTreasury") onClaimTreasury(message, button);
     });

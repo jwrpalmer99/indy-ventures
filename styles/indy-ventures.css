@@ -337,19 +337,26 @@
 }
 
 .indy-ventures-card .indy-venture-boon-header {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.indy-ventures-card .indy-venture-boon button {
+.indy-ventures-card .indy-venture-boon .indy-venture-boon-purchase {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   margin: 0;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+  font-size: small;
 }
 
 .indy-ventures-card .indy-venture-boon .indy-venture-boon-label {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   margin: 0;
   line-height: 1.2;
@@ -359,9 +366,42 @@
   word-break: break-word;
 }
 
+.indy-ventures-card .indy-venture-boon .indy-venture-boon-toggle {
+  flex: 0 0 auto;
+  width: 1.3rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.indy-ventures-card .indy-venture-boon .indy-venture-boon-toggle::before {
+  content: "\25B6";
+  font-size: 0.72rem;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.indy-ventures-card .indy-venture-boon:not(.is-collapsed) .indy-venture-boon-toggle::before {
+  transform: rotate(90deg);
+}
+
 .indy-ventures-card .indy-venture-boon.is-collapsed {
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
+}
+
+.indy-ventures-card .indy-venture-boon.is-collapsed .indy-venture-boon-body {
+  display: none;
 }
 
 .indy-ventures-card .indy-venture-boon-body {

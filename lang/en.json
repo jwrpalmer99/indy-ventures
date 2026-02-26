@@ -117,6 +117,8 @@
       "BoonGroupLimitUnlimited": "Group '{group}' purchased this turn: {purchased} (no group limit)",
       "BoonPurchaseWindow": "Purchase Window: {mode}",
       "BoonPurchaseWindowBlocked": "Not purchasable this turn due to purchase window ({mode}).",
+      "ExpandBoonDetails": "Expand boon details",
+      "CollapseBoonDetails": "Collapse boon details",
       "BoonRewardLabel": "Reward on purchase:",
       "BoonReward": "Reward on purchase: {reward}",
       "DeficitCovered": "Remaining deficit of {character} gp was automatically covered from character funds.",

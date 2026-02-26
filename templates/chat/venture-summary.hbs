@@ -104,10 +104,11 @@
         {{#if boons.length}}
           <div class="indy-venture-boons">
             {{#each boons}}
-              <div class="indy-venture-boon {{#unless purchasable}}is-collapsed{{/unless}}">
+              <div class="indy-venture-boon is-collapsed">
                 <div class="indy-venture-boon-header">
                 {{#if purchasable}}
                   <button type="button"
+                          class="indy-venture-boon-purchase"
                           data-action="purchaseBoon"
                           data-facility-uuid="{{ ../facilityUuid }}"
                           data-boon-index="{{ index }}"
@@ -116,6 +117,14 @@
                   </button>
                 {{else}}
                   <div class="indy-venture-boon-label">{{ name }} ({{ cost }} gp)</div>
+                {{/if}}
+                {{#if purchasable}}
+                  <button type="button"
+                          class="indy-venture-boon-toggle"
+                          data-action="toggleBoonDetails"
+                          aria-expanded="false"
+                          aria-label="{{ localize "INDYVENTURES.Chat.ExpandBoonDetails" }}"
+                          data-tooltip="{{ localize "INDYVENTURES.Chat.ExpandBoonDetails" }}"></button>
                 {{/if}}
                 </div>
                 {{#if purchasable}}
