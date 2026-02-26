@@ -18,6 +18,8 @@ import { moduleLog } from "./logger.js";
 
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
 const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
+const BOON_REWARD_SOURCE_FLAG = `flags.${MODULE_ID}.boonRewardSource`;
+const BOON_REWARD_TEMPLATE_ID_FLAG = `flags.${MODULE_ID}.boonRewardTemplateId`;
 const boonPurchaseLocks = new Map();
 
 function getRenderTemplate() {
@@ -89,7 +91,13 @@ function getVentureModifierFromEffect(effect) {
   };
 }
 
-function modifierAppliesToFacility(modifier, facility) {
+function modifierAppliesToFacility(modifier, facility, source = null) {
+  if ((source?.ownerType === "facility") && source?.owner) {
+    const sourceFacility = source.owner;
+    if ((sourceFacility.id === facility.id) || (sourceFacility.uuid === facility.uuid)) {
+      return true;
+    }
+  }
   if (modifier.applyToAllVentures) return true;
   const target = modifier.facilityId;
   if (!target || (target === "*") || (target.toLowerCase() === "all")) return true;
@@ -128,7 +136,7 @@ function collectBastionCardModifiers(actor) {
         if ((source.ownerType === "facility") && (effect.getFlag(MODULE_ID, "ventureModifierTemplate") === true)) continue;
         const modifier = getVentureModifierFromEffect(effect);
         if (!modifier) continue;
-        if (!modifierAppliesToFacility(modifier, facility)) continue;
+        if (!modifierAppliesToFacility(modifier, facility, source)) continue;
         if ((modifier.remainingTurns !== null) && (modifier.remainingTurns <= 0)) continue;
         rows.push({
           facilityName: config.ventureName || facility.name,
@@ -422,6 +430,58 @@ function cloneDocumentSource(document) {
   return source;
 }
 
+function getBoonRewardSourceKey(boon, rewardDoc) {
+  const rewardUuid = String(boon?.rewardUuid ?? rewardDoc?.uuid ?? "").trim();
+  if (rewardUuid) return rewardUuid;
+  const rewardId = String(rewardDoc?.id ?? "").trim();
+  return rewardId ? `id:${rewardId}` : "";
+}
+
+function applyBoonRewardIdentity(effectData, boon, rewardDoc) {
+  const sourceKey = getBoonRewardSourceKey(boon, rewardDoc);
+  if (sourceKey) foundry.utils.setProperty(effectData, BOON_REWARD_SOURCE_FLAG, sourceKey);
+
+  const templateId = String(rewardDoc?.id ?? "").trim();
+  if (templateId) foundry.utils.setProperty(effectData, BOON_REWARD_TEMPLATE_ID_FLAG, templateId);
+
+  const sourceUuid = String(rewardDoc?.uuid ?? "").trim();
+  if (sourceUuid) foundry.utils.setProperty(effectData, "flags.core.sourceId", sourceUuid);
+
+  return { sourceKey, templateId, sourceUuid };
+}
+
+function findMatchingBoonRewardEffects(targetDocument, identity) {
+  const sourceKey = String(identity?.sourceKey ?? "").trim();
+  const templateId = String(identity?.templateId ?? "").trim();
+  const sourceUuid = String(identity?.sourceUuid ?? "").trim();
+  const matches = [];
+
+  for (const effect of targetDocument?.effects ?? []) {
+    if (!effect) continue;
+    if (effect.getFlag(MODULE_ID, "ventureModifierTemplate") === true) continue;
+
+    const effectSourceKey = String(effect.getFlag(MODULE_ID, "boonRewardSource") ?? "").trim();
+    if (sourceKey && effectSourceKey && (effectSourceKey === sourceKey)) {
+      matches.push(effect);
+      continue;
+    }
+
+    const effectTemplateId = String(effect.getFlag(MODULE_ID, "boonRewardTemplateId") ?? "").trim();
+    if (templateId && effectTemplateId && (effectTemplateId === templateId)) {
+      matches.push(effect);
+      continue;
+    }
+
+    const coreSourceId = String(foundry.utils.getProperty(effect, "flags.core.sourceId") ?? "").trim();
+    if (sourceUuid && coreSourceId && (coreSourceId === sourceUuid)) {
+      matches.push(effect);
+      continue;
+    }
+  }
+
+  return matches;
+}
+
 function buildModifierChangeRows(modifier) {
   const mode = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
   const priority = 20;
@@ -629,8 +689,38 @@ async function grantBoonReward(actor, facility, boon) {
     const targetDocument = hasVentureModifier && facility?.createEmbeddedDocuments
       ? facility
       : actor;
-    const created = await targetDocument.createEmbeddedDocuments("ActiveEffect", [effectData]);
-    const createdEffect = created?.[0];
+    const identity = applyBoonRewardIdentity(effectData, boon, rewardDoc);
+    const existing = findMatchingBoonRewardEffects(targetDocument, identity);
+    let createdEffect = null;
+
+    if (existing.length && targetDocument.updateEmbeddedDocuments) {
+      const [primary, ...duplicates] = existing;
+      effectData._id = primary.id;
+      const updated = await targetDocument.updateEmbeddedDocuments("ActiveEffect", [effectData]);
+      createdEffect = updated?.[0] ?? targetDocument.effects?.get?.(primary.id) ?? primary;
+      if (duplicates.length && targetDocument.deleteEmbeddedDocuments) {
+        const duplicateIds = duplicates.map(effect => effect.id).filter(Boolean);
+        if (duplicateIds.length) {
+          await targetDocument.deleteEmbeddedDocuments("ActiveEffect", duplicateIds);
+        }
+      }
+      moduleLog("Boon reward granted: active effect replaced existing", {
+        actor: actor.name,
+        facility: facility.name,
+        target: targetDocument?.documentName ?? "Actor",
+        rewardUuid: boon.rewardUuid,
+        sourceEffect: rewardDoc.name,
+        replacedEffectId: primary.id,
+        removedDuplicateCount: Math.max(existing.length - 1, 0)
+      });
+    } else {
+      if (identity.templateId && !targetDocument.effects?.get?.(identity.templateId)) {
+        effectData._id = identity.templateId;
+      }
+      const created = await targetDocument.createEmbeddedDocuments("ActiveEffect", [effectData]);
+      createdEffect = created?.[0];
+    }
+
     moduleLog("Boon reward granted: active effect", {
       actor: actor.name,
       facility: facility.name,

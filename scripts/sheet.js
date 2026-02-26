@@ -1013,9 +1013,9 @@ class BoonEditorApplication extends HandlebarsApplicationMixin(ApplicationV2) {
       saveBoonEditor: BoonEditorApplication.#onSave,
       cancelBoonEditor: BoonEditorApplication.#onCancel
     },
-    classes: ["indy-ventures", "indy-boon-editor-app"],
+    classes: ["dnd5e2", "indy-ventures", "indy-boon-editor-app"],
     position: {
-      width: 1100
+      width: 1120
     },
     tag: "section",
     window: {

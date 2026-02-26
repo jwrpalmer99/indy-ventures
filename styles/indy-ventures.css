@@ -424,23 +424,42 @@
 }
 
 .indy-boon-editor-app {
-  min-width: 860px;
+  min-width: 900px;
+  background-size: cover;
+}
+
+.indy-boon-editor {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.indy-boon-editor .card {
+  margin: 0;
+  padding: 0.45rem 0.55rem 0.55rem;
+}
+
+.indy-boon-editor .card > legend {
+  letter-spacing: 0.02em;
 }
 
 .indy-boon-editor .hint {
-  margin: 0 0 0.5rem;
+  margin: 0;
+}
+
+.indy-boon-editor .indy-boon-editor-main > .hint {
+  margin-bottom: 0.45rem;
 }
 
 .indy-boon-editor .indy-boon-editor-table {
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 6px;
-  padding: 0.35rem;
+  border: 1px solid var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.22));
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--dnd5e-background-card, #f8f4f1);
 }
 
 .indy-boon-editor .indy-boon-head,
 .indy-boon-editor .indy-boon-editor-grid {
   display: grid;
-  gap: 0.35rem;
 }
 
 .indy-boon-editor .indy-boon-head,
@@ -449,14 +468,30 @@
   grid-template-columns: minmax(170px, 1.2fr) 90px minmax(200px, 1.45fr) minmax(220px, 1.55fr) 120px 190px 36px;
   gap: 0.35rem;
   align-items: center;
+  padding: 0.25rem 0.35rem;
 }
 
 .indy-boon-editor .indy-boon-head {
-  font-weight: 600;
-  font-size: 0.78rem;
+  font-family: var(--dnd5e-font-roboto, "Signika", sans-serif);
+  font-weight: 700;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  opacity: 0.9;
-  padding: 0.1rem 0.2rem;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.22));
+  background: color-mix(in oklab, var(--dnd5e-background-card, #f8f4f1), black 6%);
+}
+
+.indy-boon-editor .indy-boon-editor-grid {
+  gap: 1px;
+  background: var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.2));
+}
+
+.indy-boon-editor .indy-boon-row {
+  background: var(--dnd5e-background-card, #f8f4f1);
+}
+
+.indy-boon-editor .indy-boon-row:nth-child(even) {
+  background: var(--dnd5e-color-table-row-odd, rgba(0, 0, 0, 0.04));
 }
 
 .indy-boon-editor .indy-boon-row :is(input, select) {
@@ -471,17 +506,21 @@
 }
 
 .indy-boon-editor .indy-boon-row .boon-build-effect {
-  height: 34px;
-  min-width: 34px;
+  height: var(--form-field-height, 34px);
+  min-width: var(--form-field-height, 34px);
 }
 
 .indy-boon-editor .indy-boon-row .boon-remove {
-  height: 34px;
-  min-width: 34px;
+  height: var(--form-field-height, 34px);
+  min-width: var(--form-field-height, 34px);
+}
+
+.indy-boon-editor :is(.indy-boon-add, .indy-boon-add-group, .boon-build-effect, .boon-remove, .indy-boon-editor-footer button) {
+  border: var(--dnd5e-border-gold, 1px solid rgba(0, 0, 0, 0.25));
 }
 
 .indy-boon-editor .indy-boon-editor-actions {
-  margin-top: 0.6rem;
+  margin-top: 0.5rem;
 }
 
 .indy-boon-editor .indy-boon-editor-actions .indy-boon-add {
@@ -489,17 +528,15 @@
 }
 
 .indy-boon-editor .indy-boon-editor-footer {
-  margin-top: 0.6rem;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
 
 .indy-boon-groups-section {
-  margin-top: 0.7rem;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.02);
+  margin: 0;
+  border: 0;
+  background: transparent;
 }
 
 .indy-boon-groups-section .indy-boon-groups-toggle {
@@ -508,9 +545,10 @@
   justify-content: space-between;
   gap: 0.5rem;
   cursor: pointer;
-  padding: 0.45rem 0.55rem;
+  padding: 0.15rem 0.1rem 0.35rem;
   font-weight: 600;
   list-style: none;
+  border-bottom: 1px solid var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.14));
 }
 
 .indy-boon-groups-section .indy-boon-groups-toggle::marker,
@@ -539,8 +577,7 @@
 }
 
 .indy-boon-groups-section .indy-boon-groups-body {
-  padding: 0.45rem 0.55rem 0.55rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 0.45rem 0.1rem 0.1rem;
 }
 
 .indy-boon-groups-section .indy-boon-groups-header {
@@ -555,10 +592,10 @@
 }
 
 .indy-boon-groups-section .indy-boon-group-card {
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  border-radius: 6px;
+  border: 1px solid var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.2));
+  border-radius: 4px;
   padding: 0.4rem;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--dnd5e-background-card, #f8f4f1);
 }
 
 .indy-boon-groups-section .indy-boon-group-card-header {
@@ -576,8 +613,8 @@
 
 .indy-boon-groups-section .indy-boon-group-drop {
   min-height: 2.1rem;
-  border: 1px dashed rgba(0, 0, 0, 0.24);
-  border-radius: 5px;
+  border: 1px dashed var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.24));
+  border-radius: 4px;
   padding: 0.25rem;
   display: flex;
   flex-wrap: wrap;
@@ -586,13 +623,13 @@
 }
 
 .indy-boon-groups-section .indy-boon-group-drop.is-over {
-  background: rgba(48, 80, 140, 0.09);
-  border-color: rgba(48, 80, 140, 0.55);
+  background: color-mix(in oklab, var(--dnd5e-color-gold, #c9a345), transparent 88%);
+  border-color: color-mix(in oklab, var(--dnd5e-color-gold, #c9a345), black 20%);
 }
 
 .indy-boon-groups-section .indy-boon-chip {
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--dnd5e-color-light-gray, rgba(0, 0, 0, 0.24));
+  background: color-mix(in oklab, var(--dnd5e-background-card, #f8f4f1), black 4%);
   border-radius: 999px;
   padding: 0.12rem 0.5rem;
   line-height: 1.2;

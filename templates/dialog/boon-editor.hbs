@@ -1,68 +1,74 @@
 <div class="indy-boon-editor">
-  <p class="hint">{{ localize "INDYVENTURES.BoonEditor.Help" }}</p>
+  <fieldset class="card indy-boon-editor-main">
+    <legend>{{ localize "INDYVENTURES.Sheet.Boons" }}</legend>
+    <p class="hint">{{ localize "INDYVENTURES.BoonEditor.Help" }}</p>
 
-  <div class="indy-boon-editor-table">
-    <div class="indy-boon-head">
-      <span>{{ localize "INDYVENTURES.BoonEditor.Name" }}</span>
-      <span>{{ localize "INDYVENTURES.BoonEditor.Cost" }}</span>
-      <span>{{ localize "INDYVENTURES.BoonEditor.Description" }}</span>
-      <span>{{ localize "INDYVENTURES.BoonEditor.Reward" }}</span>
-      <span>{{ localize "INDYVENTURES.BoonEditor.Limit" }}</span>
-      <span>{{ localize "INDYVENTURES.BoonEditor.PurchaseWhen" }}</span>
-      <span></span>
-    </div>
-
-    <div class="indy-boon-editor-grid" data-boon-rows>
-      {{#each boons}}
-        <div class="indy-boon-row" data-boon-id="{{ rowId }}">
-          <input type="text" class="boon-name" placeholder="{{ localize "INDYVENTURES.BoonEditor.Name" }}" value="{{ name }}">
-          <input type="number" class="boon-cost" min="0" step="1" placeholder="{{ localize "INDYVENTURES.BoonEditor.Cost" }}" value="{{ cost }}">
-          <input type="text" class="boon-description" placeholder="{{ localize "INDYVENTURES.BoonEditor.Description" }}" value="{{ description }}">
-          <div class="boon-reward-cell">
-            <input type="text" class="boon-reward" placeholder="{{ localize "INDYVENTURES.BoonEditor.RewardPlaceholder" }}" value="{{ reward }}">
-            <button type="button"
-                    class="boon-build-effect icon fa-solid fa-wand-magic-sparkles"
-                    data-action="buildBoonModifierReward"
-                    aria-label="{{ localize "INDYVENTURES.BoonEditor.ModifierBuilderOpen" }}"></button>
-          </div>
-          <input type="text" class="boon-limit" placeholder="{{ localize "INDYVENTURES.BoonEditor.LimitPlaceholder" }}" value="{{ perTurnLimitDisplay }}">
-          <select class="boon-purchase-when">
-            {{ selectOptions ../purchaseWhenOptions selected=purchaseWhen localize=false }}
-          </select>
-          <input type="hidden" class="boon-group" value="{{ group }}">
-          <input type="hidden" class="boon-group-limit" value="{{ groupLimit }}">
-          <button type="button" class="boon-remove icon fa-solid fa-trash" data-action="removeBoonRow" aria-label="{{ localize "INDYVENTURES.BoonEditor.Remove" }}"></button>
-        </div>
-      {{/each}}
-    </div>
-  </div>
-
-  <div class="indy-boon-editor-actions">
-    <button type="button" data-action="addBoonRow" class="indy-boon-add">
-      <i class="fa-solid fa-plus"></i>
-      {{ localize "INDYVENTURES.BoonEditor.Add" }}
-    </button>
-  </div>
-
-  <details class="indy-boon-groups-section" data-boon-groups-details>
-    <summary class="indy-boon-groups-toggle">
-      <span class="indy-boon-groups-label">
-        <i class="fa-solid fa-chevron-right indy-boon-groups-glyph" aria-hidden="true"></i>
-        <span>{{ localize "INDYVENTURES.BoonEditor.GroupsTitle" }}</span>
-      </span>
-      <span class="hint" data-boon-groups-count></span>
-    </summary>
-    <div class="indy-boon-groups-body">
-      <div class="indy-boon-groups-header">
-        <button type="button" data-action="addBoonGroup" class="indy-boon-add-group">
-          <i class="fa-solid fa-plus"></i>
-          {{ localize "INDYVENTURES.BoonEditor.AddGroup" }}
-        </button>
+    <div class="indy-boon-editor-table">
+      <div class="indy-boon-head">
+        <span>{{ localize "INDYVENTURES.BoonEditor.Name" }}</span>
+        <span>{{ localize "INDYVENTURES.BoonEditor.Cost" }}</span>
+        <span>{{ localize "INDYVENTURES.BoonEditor.Description" }}</span>
+        <span>{{ localize "INDYVENTURES.BoonEditor.Reward" }}</span>
+        <span>{{ localize "INDYVENTURES.BoonEditor.Limit" }}</span>
+        <span>{{ localize "INDYVENTURES.BoonEditor.PurchaseWhen" }}</span>
+        <span></span>
       </div>
-      <p class="hint">{{ localize "INDYVENTURES.BoonEditor.GroupsHelp" }}</p>
-      <div class="indy-boon-groups-cards" data-boon-groups></div>
+
+      <div class="indy-boon-editor-grid" data-boon-rows>
+        {{#each boons}}
+          <div class="indy-boon-row" data-boon-id="{{ rowId }}">
+            <input type="text" class="boon-name" placeholder="{{ localize "INDYVENTURES.BoonEditor.Name" }}" value="{{ name }}">
+            <input type="number" class="boon-cost" min="0" step="1" placeholder="{{ localize "INDYVENTURES.BoonEditor.Cost" }}" value="{{ cost }}">
+            <input type="text" class="boon-description" placeholder="{{ localize "INDYVENTURES.BoonEditor.Description" }}" value="{{ description }}">
+            <div class="boon-reward-cell">
+              <input type="text" class="boon-reward" placeholder="{{ localize "INDYVENTURES.BoonEditor.RewardPlaceholder" }}" value="{{ reward }}">
+              <button type="button"
+                      class="boon-build-effect icon fa-solid fa-wand-magic-sparkles"
+                      data-action="buildBoonModifierReward"
+                      aria-label="{{ localize "INDYVENTURES.BoonEditor.ModifierBuilderOpen" }}"></button>
+            </div>
+            <input type="text" class="boon-limit" placeholder="{{ localize "INDYVENTURES.BoonEditor.LimitPlaceholder" }}" value="{{ perTurnLimitDisplay }}">
+            <select class="boon-purchase-when">
+              {{ selectOptions ../purchaseWhenOptions selected=purchaseWhen localize=false }}
+            </select>
+            <input type="hidden" class="boon-group" value="{{ group }}">
+            <input type="hidden" class="boon-group-limit" value="{{ groupLimit }}">
+            <button type="button" class="boon-remove icon fa-solid fa-trash" data-action="removeBoonRow" aria-label="{{ localize "INDYVENTURES.BoonEditor.Remove" }}"></button>
+          </div>
+        {{/each}}
+      </div>
     </div>
-  </details>
+
+    <div class="indy-boon-editor-actions">
+      <button type="button" data-action="addBoonRow" class="indy-boon-add">
+        <i class="fa-solid fa-plus"></i>
+        {{ localize "INDYVENTURES.BoonEditor.Add" }}
+      </button>
+    </div>
+  </fieldset>
+
+  <fieldset class="card indy-boon-editor-groups-card">
+    <legend>{{ localize "INDYVENTURES.BoonEditor.GroupsTitle" }}</legend>
+    <details class="indy-boon-groups-section" data-boon-groups-details>
+      <summary class="indy-boon-groups-toggle">
+        <span class="indy-boon-groups-label">
+          <i class="fa-solid fa-chevron-right indy-boon-groups-glyph" aria-hidden="true"></i>
+          <span>{{ localize "INDYVENTURES.BoonEditor.GroupsTitle" }}</span>
+        </span>
+        <span class="hint" data-boon-groups-count></span>
+      </summary>
+      <div class="indy-boon-groups-body">
+        <div class="indy-boon-groups-header">
+          <button type="button" data-action="addBoonGroup" class="indy-boon-add-group">
+            <i class="fa-solid fa-plus"></i>
+            {{ localize "INDYVENTURES.BoonEditor.AddGroup" }}
+          </button>
+        </div>
+        <p class="hint">{{ localize "INDYVENTURES.BoonEditor.GroupsHelp" }}</p>
+        <div class="indy-boon-groups-cards" data-boon-groups></div>
+      </div>
+    </details>
+  </fieldset>
 
   <footer class="indy-boon-editor-footer">
     <button type="button" data-action="saveBoonEditor" class="default">{{ localize "INDYVENTURES.BoonEditor.Save" }}</button>

@@ -92,6 +92,20 @@
         {{#if modifierEffects.length}}
           <div class="indy-venture-modifiers">
             <p class="hint"><strong>{{ localize "INDYVENTURES.Chat.AppliedModifiers" }}</strong></p>
+            {{#if modifierOutcome.hasAny}}
+              {{#if modifierOutcome.showProfitDie}}
+                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeProfitDie" base=modifierOutcome.profitDieBase final=modifierOutcome.profitDieFinal }}</p>
+              {{/if}}
+              {{#if modifierOutcome.showLossDie}}
+                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeLossDie" base=modifierOutcome.lossDieBase final=modifierOutcome.lossDieFinal }}</p>
+              {{/if}}
+              {{#if modifierOutcome.showSuccessThreshold}}
+                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeSuccessThreshold" base=modifierOutcome.successThresholdBase final=modifierOutcome.successThresholdFinal }}</p>
+              {{/if}}
+              {{#if modifierOutcome.showProfitBonus}}
+                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeProfitRoll" raw=modifierOutcome.rawProfitRollTotal bonus=modifierOutcome.profitRollBonus total=modifierOutcome.profitRollTotal }}</p>
+              {{/if}}
+            {{/if}}
             {{#each modifierEffects}}
               <p class="hint">
                 <strong>{{ name }}</strong>{{#if summary}}: {{ summary }}{{/if}}
@@ -103,6 +117,14 @@
                   {{/if}}
                 {{/if}}
               </p>
+              {{#if impactLines.length}}
+                <p class="hint">
+                  <em>{{ localize "INDYVENTURES.Chat.ModifierImpactLabel" }}:</em>
+                  {{#each impactLines}}
+                    {{ this }}{{#unless @last}}; {{/unless}}
+                  {{/each}}
+                </p>
+              {{/if}}
             {{/each}}
           </div>
         {{/if}}

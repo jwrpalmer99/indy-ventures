@@ -314,6 +314,68 @@ function summarizeModifierEffect(modifier) {
   return parts.join(", ");
 }
 
+function formatSignedNumber(value) {
+  const amount = Number(value) || 0;
+  return `${amount > 0 ? "+" : ""}${amount}`;
+}
+
+function buildModifierImpactLines(modifier, context) {
+  const lines = [];
+  if (modifier.profitDieStep) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactProfitStep", {
+      step: formatSignedNumber(modifier.profitDieStep),
+      from: context.baseProfitDie,
+      to: context.steppedProfitDie
+    }));
+  }
+  if (modifier.profitDieOverride) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactProfitOverride", {
+      override: modifier.profitDieOverride,
+      final: context.rolledProfitDie
+    }));
+  }
+  if (modifier.minProfitDie) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactMinProfit", {
+      minimum: modifier.minProfitDie,
+      final: context.rolledProfitDie
+    }));
+  }
+  if (modifier.lossDieStep) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactLossStep", {
+      step: formatSignedNumber(modifier.lossDieStep),
+      from: context.baseLossDie,
+      to: context.steppedLossDie
+    }));
+  }
+  if (modifier.lossDieOverride) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactLossOverride", {
+      override: modifier.lossDieOverride,
+      final: context.lossDie
+    }));
+  }
+  if (modifier.maxLossDie) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactMaxLoss", {
+      maximum: modifier.maxLossDie,
+      final: context.lossDie
+    }));
+  }
+  if (modifier.successThresholdOverride) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactSuccessThreshold", {
+      base: context.baseSuccessThreshold,
+      effective: context.effectiveSuccessThreshold
+    }));
+  }
+  if (modifier.profitRollBonus) {
+    lines.push(game.i18n.format("INDYVENTURES.Chat.ModifierImpactProfitBonus", {
+      bonus: formatSignedNumber(modifier.profitRollBonus),
+      raw: context.rawProfitRollTotal,
+      aggregateBonus: formatSignedNumber(context.aggregateProfitRollBonus),
+      total: context.profitRollTotal
+    }));
+  }
+  return lines;
+}
+
 function dieIndex(die) {
   return DICE_STEPS.indexOf(parseEffectDie(die) ?? "");
 }
@@ -434,7 +496,13 @@ function getBastionDurationData(effect) {
   return { expireNextTurn, remainingTurns, durationFormula, consumePerTurn };
 }
 
-function modifierAppliesToFacility(modifier, facility) {
+function modifierAppliesToFacility(modifier, facility, source = null) {
+  if ((source?.ownerType === "facility") && source?.owner) {
+    const sourceFacility = source.owner;
+    if ((sourceFacility.id === facility.id) || (sourceFacility.uuid === facility.uuid)) {
+      return true;
+    }
+  }
   if (modifier.applyToAllVentures) return true;
   const target = modifier.facilityId;
   if (!target || (target === "*") || (target.toLowerCase() === "all")) return true;
@@ -462,7 +530,27 @@ function getModifierEffectSources(actor, facility) {
 
 function isFacilityModifierActiveInstance(effect, ownerType) {
   if (ownerType !== "facility") return true;
-  return effect.getFlag(MODULE_ID, "ventureModifierTemplate") === false;
+  return effect.getFlag(MODULE_ID, "ventureModifierTemplate") !== true;
+}
+
+function getEffectDebugIdentity(effect, source) {
+  return {
+    id: effect?.id ?? null,
+    name: effect?.name ?? "",
+    ownerType: source?.ownerType ?? "",
+    ownerName: source?.owner?.name ?? source?.owner?.id ?? "",
+    ownerUuid: source?.owner?.uuid ?? null
+  };
+}
+
+function getEffectModifierChangeRows(effect) {
+  return (effect?.changes ?? [])
+    .filter(change => String(change?.key ?? "").startsWith(VENTURE_MODIFIER_CHANGE_PREFIX))
+    .map(change => ({
+      key: change?.key,
+      mode: change?.mode,
+      value: change?.value
+    }));
 }
 
 function collectActiveVentureModifiers(actor, facility) {
@@ -484,50 +572,92 @@ function collectActiveVentureModifiers(actor, facility) {
   for (const source of sources) {
     for (const effect of source.effects ?? []) {
       if (!effect) continue;
-      if (!isFacilityModifierActiveInstance(effect, source.ownerType)) {
+      const effectIdentity = getEffectDebugIdentity(effect, source);
+      const templateFlag = effect.getFlag(MODULE_ID, "ventureModifierTemplate");
+      const rawModifierFlag = foundry.utils.deepClone(effect.getFlag(MODULE_ID, "ventureModifier") ?? null);
+      const modifierChangeRows = getEffectModifierChangeRows(effect);
+      const hasDefinition = effectHasVentureModifierDefinition(effect);
+      moduleLog("Venture modifiers: evaluating effect", {
+        ...effectIdentity,
+        templateFlag,
+        disabled: Boolean(effect.disabled),
+        suppressed: Boolean(effect.isSuppressed),
+        hasDefinition,
+        rawModifierFlag,
+        modifierChangeRows
+      });
+
+      if (!hasDefinition) {
         debugEffects.push({
-          id: effect.id,
-          name: effect.name,
-          ownerType: source.ownerType,
-          ownerName: source.owner?.name ?? source.owner?.id ?? "",
-          ownerUuid: source.owner?.uuid ?? null,
+          ...effectIdentity,
           skipped: true,
-          reason: "template"
+          reason: "noDefinition"
+        });
+        moduleLog("Venture modifiers: skipped effect", {
+          ...effectIdentity,
+          reason: "noDefinition"
         });
         continue;
       }
-      const hasDefinition = effectHasVentureModifierDefinition(effect);
-      if (!hasDefinition) continue;
+
+      if (!isFacilityModifierActiveInstance(effect, source.ownerType)) {
+        debugEffects.push({
+          ...effectIdentity,
+          skipped: true,
+          reason: "template"
+        });
+        moduleLog("Venture modifiers: skipped effect", {
+          ...effectIdentity,
+          reason: "template",
+          templateFlag
+        });
+        continue;
+      }
       if (effect.disabled || effect.isSuppressed) {
         debugEffects.push({
-          id: effect.id,
-          name: effect.name,
-          ownerType: source.ownerType,
-          ownerName: source.owner?.name ?? source.owner?.id ?? "",
-          ownerUuid: source.owner?.uuid ?? null,
+          ...effectIdentity,
           disabled: Boolean(effect.disabled),
           suppressed: Boolean(effect.isSuppressed),
           skipped: true,
           reason: effect.disabled ? "disabled" : "suppressed"
         });
+        moduleLog("Venture modifiers: skipped effect", {
+          ...effectIdentity,
+          reason: effect.disabled ? "disabled" : "suppressed"
+        });
         continue;
       }
       const modifier = getEffectModifierData(effect);
-      const appliesToFacility = modifierAppliesToFacility(modifier, facility);
+      const appliesToFacility = modifierAppliesToFacility(modifier, facility, source);
       const hasDuration = modifier.remainingTurns !== null;
       const activeDuration = !hasDuration || (modifier.remainingTurns > 0);
+      moduleLog("Venture modifiers: parsed modifier", {
+        ...effectIdentity,
+        modifier,
+        appliesToFacility,
+        facilityMatchCandidates: [facility.id, facility.uuid, facility.name],
+        hasDuration,
+        activeDuration
+      });
       if (!modifier.enabled || !appliesToFacility || !activeDuration) {
+        const reason = !modifier.enabled
+          ? "disabledByFlag"
+          : (!appliesToFacility ? "scopeMismatch" : "expired");
         debugEffects.push({
-          id: effect.id,
-          name: effect.name,
-          ownerType: source.ownerType,
-          ownerName: source.owner?.name ?? source.owner?.id ?? "",
-          ownerUuid: source.owner?.uuid ?? null,
+          ...effectIdentity,
           enabled: modifier.enabled,
           appliesToFacility,
           bastionDurationType: modifier.bastionDurationType,
           remainingTurns: modifier.remainingTurns,
-          skipped: true
+          skipped: true,
+          reason
+        });
+        moduleLog("Venture modifiers: skipped effect", {
+          ...effectIdentity,
+          reason,
+          enabled: modifier.enabled,
+          appliesToFacility,
+          remainingTurns: modifier.remainingTurns
         });
         continue;
       }
@@ -576,11 +706,7 @@ function collectActiveVentureModifiers(actor, facility) {
       }
 
       debugEffects.push({
-        id: effect.id,
-        name: effect.name,
-        ownerType: source.ownerType,
-        ownerName: source.owner?.name ?? source.owner?.id ?? "",
-        ownerUuid: source.owner?.uuid ?? null,
+        ...effectIdentity,
         enabled: modifier.enabled,
         appliesToFacility,
         remainingTurns: modifier.remainingTurns,
@@ -598,8 +724,19 @@ function collectActiveVentureModifiers(actor, facility) {
         profitRollBonus: modifier.profitRollBonus,
         skipped: false
       });
+      moduleLog("Venture modifiers: applied effect", {
+        ...effectIdentity,
+        modifier,
+        aggregateAfter: foundry.utils.deepClone(aggregate)
+      });
     }
   }
+
+  const reasonCounts = debugEffects.reduce((counts, effect) => {
+    const key = effect.skipped ? (String(effect.reason ?? "unknown")) : "applied";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
 
   moduleLog("Venture modifiers: effect scan summary", {
     actor: actor.name,
@@ -607,7 +744,8 @@ function collectActiveVentureModifiers(actor, facility) {
     actorEffects: actor.effects?.size ?? 0,
     facilityEffects: facility.effects?.size ?? 0,
     modifierEffectsFound: debugEffects.length,
-    modifierEffectsApplied: debugEffects.filter(effect => !effect.skipped).length
+    modifierEffectsApplied: debugEffects.filter(effect => !effect.skipped).length,
+    reasonCounts
   });
 
   return { aggregate, trackedEffects, growConsumableEffects, debugEffects };
@@ -1196,22 +1334,48 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     treasury: state.treasury,
     failed: state.failed
   };
-  let rolledProfitDie = shiftDie(state.currentProfitDie, effectModifiers.aggregate.profitDieStep);
+  const baseProfitDie = stateBefore.currentProfitDie;
+  const baseSuccessThreshold = Math.max(Number(config.successThreshold) || 1, 1);
+  let steppedProfitDie = shiftDie(baseProfitDie, effectModifiers.aggregate.profitDieStep);
+  let rolledProfitDie = steppedProfitDie;
   if (effectModifiers.aggregate.profitDieOverride) {
     rolledProfitDie = effectModifiers.aggregate.profitDieOverride;
   }
   rolledProfitDie = applyMinimumDie(rolledProfitDie, effectModifiers.aggregate.minProfitDie);
 
-  let lossDie = shiftDie(config.lossDie, config.lossModifier + effectModifiers.aggregate.lossDieStep);
+  const baseLossDie = shiftDie(config.lossDie, config.lossModifier);
+  let steppedLossDie = shiftDie(config.lossDie, config.lossModifier + effectModifiers.aggregate.lossDieStep);
+  let lossDie = steppedLossDie;
   if (effectModifiers.aggregate.lossDieOverride) {
     lossDie = effectModifiers.aggregate.lossDieOverride;
   }
   lossDie = applyMaximumDie(lossDie, effectModifiers.aggregate.maxLossDie);
 
   const effectiveSuccessThreshold = Math.max(
-    Number(effectModifiers.aggregate.successThresholdOverride ?? config.successThreshold) || config.successThreshold,
+    Number(effectModifiers.aggregate.successThresholdOverride ?? baseSuccessThreshold) || baseSuccessThreshold,
     1
   );
+  moduleLog("Venture modifiers: computed dice before rolls", {
+    actor: actor.name,
+    facility: facility.name,
+    baseProfitDie,
+    steppedProfitDie,
+    finalProfitDie: rolledProfitDie,
+    baseLossDie,
+    steppedLossDie,
+    finalLossDie: lossDie,
+    baseSuccessThreshold,
+    effectiveSuccessThreshold,
+    aggregate: foundry.utils.deepClone(effectModifiers.aggregate),
+    appliedEffects: effectModifiers.debugEffects
+      .filter(effect => !effect.skipped)
+      .map(effect => ({
+        id: effect.id,
+        name: effect.name,
+        ownerType: effect.ownerType,
+        ownerName: effect.ownerName
+      }))
+  });
 
   const profitRoll = await rollDie(
     rolledProfitDie,
@@ -1235,6 +1399,25 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
   const net = income - outgoings;
   const rolledNaturalOne = rawProfitRollTotal === 1;
   const naturalOnePenaltyApplies = Boolean(config.naturalOneDegradesProfitDie) && rolledNaturalOne;
+  const modifierOutcome = {
+    showProfitDie: baseProfitDie !== rolledProfitDie,
+    profitDieBase: baseProfitDie,
+    profitDieFinal: rolledProfitDie,
+    showLossDie: baseLossDie !== lossDie,
+    lossDieBase: baseLossDie,
+    lossDieFinal: lossDie,
+    showSuccessThreshold: baseSuccessThreshold !== effectiveSuccessThreshold,
+    successThresholdBase: baseSuccessThreshold,
+    successThresholdFinal: effectiveSuccessThreshold,
+    showProfitBonus: profitRollBonus !== 0,
+    rawProfitRollTotal,
+    profitRollBonus,
+    profitRollTotal
+  };
+  modifierOutcome.hasAny = modifierOutcome.showProfitDie
+    || modifierOutcome.showLossDie
+    || modifierOutcome.showSuccessThreshold
+    || modifierOutcome.showProfitBonus;
   state.lastTurnNet = net;
 
   let coveredDeficit = false;
@@ -1419,6 +1602,19 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     };
   });
 
+  const modifierImpactContext = {
+    baseProfitDie,
+    steppedProfitDie,
+    rolledProfitDie,
+    baseLossDie,
+    steppedLossDie,
+    lossDie,
+    baseSuccessThreshold,
+    effectiveSuccessThreshold,
+    rawProfitRollTotal,
+    aggregateProfitRollBonus: profitRollBonus,
+    profitRollTotal
+  };
   const modifierEffects = effectModifiers.debugEffects
     .filter(effect => !effect.skipped)
     .map(effect => {
@@ -1427,9 +1623,11 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       const remainingAfter = (hasDuration && effect.consumePerTurn)
         ? Math.max(remainingBefore - 1, 0)
         : remainingBefore;
+      const impactLines = buildModifierImpactLines(effect, modifierImpactContext);
       return {
         name: effect.name,
         summary: summarizeModifierEffect(effect),
+        impactLines,
         hasDuration,
         remainingBefore,
         remainingAfter,
@@ -1489,6 +1687,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       treasury: state.treasury,
       failed: state.failed
     },
+    modifierOutcome,
     modifierEffects,
     consumedOnGrowEffects
   });
@@ -1535,6 +1734,7 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     failed,
     boons,
     hasPurchasableBoons: boons.some(boon => boon.purchasable),
+    modifierOutcome,
     modifierEffects
   };
 }
