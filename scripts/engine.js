@@ -954,6 +954,39 @@ function getBoonPurchaseWhenLabel(mode) {
   return game.i18n.localize("INDYVENTURES.BoonPurchaseWhen.Default");
 }
 
+function getBoonDisabledReason({
+  purchasable = false,
+  blockedByWindow = false,
+  blockedByGroupLimit = false,
+  affordable = true,
+  purchaseWhenLabel = "",
+  group = "",
+  groupPerTurnLimit = null,
+  purchasedInGroupThisTurn = 0,
+  perTurnLimit = null,
+  purchasedThisTurn = 0
+} = {}) {
+  if (purchasable) return "";
+  const unlimited = game.i18n.localize("INDYVENTURES.Chat.Unlimited");
+  if (blockedByWindow) {
+    return game.i18n.format("INDYVENTURES.Errors.BoonPurchaseWindowBlocked", {
+      mode: purchaseWhenLabel || getBoonPurchaseWhenLabel("default")
+    });
+  }
+  if (blockedByGroupLimit) {
+    return game.i18n.format("INDYVENTURES.Errors.BoonGroupTurnLimitReached", {
+      group: group || "-",
+      purchased: Math.max(Number(purchasedInGroupThisTurn) || 0, 0),
+      limit: groupPerTurnLimit ?? unlimited
+    });
+  }
+  if (!affordable) return game.i18n.localize("INDYVENTURES.Errors.NotEnoughTreasury");
+  return game.i18n.format("INDYVENTURES.Errors.BoonTurnLimitReached", {
+    purchased: Math.max(Number(purchasedThisTurn) || 0, 0),
+    limit: perTurnLimit ?? unlimited
+  });
+}
+
 function emitSocket(payload) {
   game.socket?.emit(SOCKET_NAMESPACE, payload);
 }
@@ -1639,6 +1672,22 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
     const underTurnLimit = (perTurnLimit === null) || (purchasedThisTurn < perTurnLimit);
     const underGroupLimit = !groupKey || (groupPerTurnLimit === null) || (purchasedInGroupThisTurn < groupPerTurnLimit);
+    const affordable = state.treasury >= boon.cost;
+    const blockedByGroupLimit = !underGroupLimit;
+    const blockedByWindow = !purchaseWhenAllowed;
+    const purchasable = affordable && underTurnLimit && underGroupLimit && purchaseWhenAllowed;
+    const disabledReason = getBoonDisabledReason({
+      purchasable,
+      blockedByWindow,
+      blockedByGroupLimit,
+      affordable,
+      purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
+      group,
+      groupPerTurnLimit,
+      purchasedInGroupThisTurn,
+      perTurnLimit,
+      purchasedThisTurn
+    });
     return {
       ...boon,
       index,
@@ -1652,12 +1701,13 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       purchaseWhen,
       purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
       purchaseWhenAllowed,
-      blockedByGroupLimit: !underGroupLimit,
-      blockedByWindow: !purchaseWhenAllowed,
+      blockedByGroupLimit,
+      blockedByWindow,
       purchasedThisTurn,
       remainingPurchases: perTurnLimit === null ? null : Math.max(perTurnLimit - purchasedThisTurn, 0),
-      affordable: state.treasury >= boon.cost,
-      purchasable: (state.treasury >= boon.cost) && underTurnLimit && underGroupLimit && purchaseWhenAllowed,
+      affordable,
+      purchasable,
+      disabledReason,
       rewardName: reward.rewardName,
       rewardImg: reward.rewardImg
     };

@@ -366,6 +366,10 @@
   word-break: break-word;
 }
 
+.indy-ventures-card .indy-venture-boon .indy-venture-boon-label[data-tooltip] {
+  cursor: help;
+}
+
 .indy-ventures-card .indy-venture-boon .indy-venture-boon-toggle {
   flex: 0 0 auto;
   width: 1.3rem;
@@ -481,6 +485,11 @@
   line-height: 1.35;
   text-align: left;
   white-space: pre-line;
+}
+
+#tooltip.indy-venture-boon-disabled-tooltip {
+  max-width: min(34rem, calc(100vw - 2rem));
+  text-align: left;
 }
 
 .indy-boon-editor-app {

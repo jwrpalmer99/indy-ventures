@@ -271,6 +271,39 @@ function getBoonPurchaseWhenLabel(mode) {
   return game.i18n.localize("INDYVENTURES.BoonPurchaseWhen.Default");
 }
 
+function getBoonDisabledReason({
+  purchasable = false,
+  blockedByWindow = false,
+  blockedByGroupLimit = false,
+  affordable = true,
+  purchaseWhenLabel = "",
+  group = "",
+  groupPerTurnLimit = null,
+  purchasedInGroupThisTurn = 0,
+  perTurnLimit = null,
+  purchasedThisTurn = 0
+} = {}) {
+  if (purchasable) return "";
+  const unlimited = game.i18n.localize("INDYVENTURES.Chat.Unlimited");
+  if (blockedByWindow) {
+    return game.i18n.format("INDYVENTURES.Errors.BoonPurchaseWindowBlocked", {
+      mode: purchaseWhenLabel || getBoonPurchaseWhenLabel("default")
+    });
+  }
+  if (blockedByGroupLimit) {
+    return game.i18n.format("INDYVENTURES.Errors.BoonGroupTurnLimitReached", {
+      group: group || "-",
+      purchased: Math.max(Number(purchasedInGroupThisTurn) || 0, 0),
+      limit: groupPerTurnLimit ?? unlimited
+    });
+  }
+  if (!affordable) return game.i18n.localize("INDYVENTURES.Errors.NotEnoughTreasury");
+  return game.i18n.format("INDYVENTURES.Errors.BoonTurnLimitReached", {
+    purchased: Math.max(Number(purchasedThisTurn) || 0, 0),
+    limit: perTurnLimit ?? unlimited
+  });
+}
+
 function getBoonPurchasesThisTurn(state, boonIndex, boonKey = "") {
   const purchasesTurnId = String(state?.boonPurchasesTurnId ?? "");
   const stateTurnId = String(state?.turnId ?? "");
@@ -401,6 +434,22 @@ function withBoonAvailability(
   const underGroupTurnLimit = !groupKey || (groupPerTurnLimit === null) || (purchasedInGroupThisTurn < groupPerTurnLimit);
   const net = Number(turnNet ?? state?.lastTurnNet ?? 0) || 0;
   const purchaseWhenAllowed = boonPurchaseWhenAllows(purchaseWhen, net);
+  const blockedByGroupLimit = !underGroupTurnLimit;
+  const blockedByWindow = !purchaseWhenAllowed;
+  const purchasable = affordable && underTurnLimit && underGroupTurnLimit && purchaseWhenAllowed;
+  const purchaseWhenLabel = getBoonPurchaseWhenLabel(purchaseWhen);
+  const disabledReason = getBoonDisabledReason({
+    purchasable,
+    blockedByWindow,
+    blockedByGroupLimit,
+    affordable,
+    purchaseWhenLabel,
+    group,
+    groupPerTurnLimit,
+    purchasedInGroupThisTurn,
+    perTurnLimit,
+    purchasedThisTurn
+  });
   return {
     ...boon,
     group,
@@ -412,15 +461,16 @@ function withBoonAvailability(
     perTurnLimit,
     purchaseWhen,
     purchaseWhenAllowed,
-    purchaseWhenLabel: getBoonPurchaseWhenLabel(purchaseWhen),
-    blockedByGroupLimit: !underGroupTurnLimit,
-    blockedByWindow: !purchaseWhenAllowed,
+    purchaseWhenLabel,
+    blockedByGroupLimit,
+    blockedByWindow,
     rewardName: reward.rewardName,
     rewardImg: reward.rewardImg,
     purchasedThisTurn,
     remainingPurchases: perTurnLimit === null ? null : Math.max(perTurnLimit - purchasedThisTurn, 0),
     affordable,
-    purchasable: affordable && underTurnLimit && underGroupTurnLimit && purchaseWhenAllowed
+    purchasable,
+    disabledReason
   };
 }
 

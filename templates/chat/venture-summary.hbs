@@ -116,7 +116,13 @@
                     {{ name }} ({{ cost }} gp)
                   </button>
                 {{else}}
-                  <div class="indy-venture-boon-label">{{ name }} ({{ cost }} gp)</div>
+                  <div class="indy-venture-boon-label"
+                       {{#if disabledReason}}
+                         data-tooltip-class="indy-venture-boon-disabled-tooltip"
+                         data-tooltip="{{ disabledReason }}"
+                       {{/if}}>
+                    {{ name }} ({{ cost }} gp)
+                  </div>
                 {{/if}}
                 {{#if purchasable}}
                   <button type="button"
