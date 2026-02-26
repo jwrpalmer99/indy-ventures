@@ -150,8 +150,23 @@ function collectBastionCardModifiers(actor) {
   return rows;
 }
 
+function getBastionTurnData(message) {
+  const legacyBastionData = message?.getFlag?.("dnd5e", "bastion");
+  if (legacyBastionData && Array.isArray(legacyBastionData.orders)) {
+    return legacyBastionData;
+  }
+
+  const messageType = String(message?.type ?? "").trim();
+  const typedBastionData = message?.system;
+  if ((messageType === "bastionTurn") && Array.isArray(typedBastionData?.orders)) {
+    return typedBastionData;
+  }
+
+  return null;
+}
+
 function appendBastionModifierSection(message, html) {
-  const bastionData = message.getFlag("dnd5e", "bastion");
+  const bastionData = getBastionTurnData(message);
   if (!bastionData || !Array.isArray(bastionData.orders)) return;
 
   const actor = message.getAssociatedActor?.() ?? game.actors.get(message.speaker?.actor);

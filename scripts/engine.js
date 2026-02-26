@@ -71,6 +71,21 @@ function buildBastionDedupKey(message, bastionData) {
   return "";
 }
 
+function getBastionTurnData(message) {
+  const legacyBastionData = message?.getFlag?.("dnd5e", "bastion");
+  if (legacyBastionData && Array.isArray(legacyBastionData.orders)) {
+    return legacyBastionData;
+  }
+
+  const messageType = String(message?.type ?? "").trim();
+  const typedBastionData = message?.system;
+  if ((messageType === "bastionTurn") && Array.isArray(typedBastionData?.orders)) {
+    return typedBastionData;
+  }
+
+  return null;
+}
+
 async function requestLocalUserRoll({ formula, actor, facilityName, rollLabel }) {
   const title = game.i18n.localize("INDYVENTURES.RollPrompt.Title");
   const content = game.i18n.format("INDYVENTURES.RollPrompt.Content", {
@@ -1899,7 +1914,7 @@ export async function processActorVenturesFromBastionMessage(message) {
     .sort()[0];
   if (game.user.id !== primaryGmId) return;
 
-  const bastionData = message.getFlag("dnd5e", "bastion");
+  const bastionData = getBastionTurnData(message);
   if (!bastionData || !Array.isArray(bastionData.orders)) return;
 
   const actor = message.getAssociatedActor?.() ?? game.actors.get(message.speaker?.actor);
