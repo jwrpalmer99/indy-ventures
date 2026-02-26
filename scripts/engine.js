@@ -376,6 +376,67 @@ function buildModifierImpactLines(modifier, context) {
   return lines;
 }
 
+function buildModifierEffectsTooltip(modifierEffects = [], modifierOutcome = null) {
+  const outcomeLines = [];
+  const effectBlocks = [];
+
+  if (modifierOutcome?.showProfitDie) {
+    outcomeLines.push(game.i18n.format("INDYVENTURES.Chat.ModifierOutcomeProfitDie", {
+      base: modifierOutcome.profitDieBase,
+      final: modifierOutcome.profitDieFinal
+    }));
+  }
+  if (modifierOutcome?.showLossDie) {
+    outcomeLines.push(game.i18n.format("INDYVENTURES.Chat.ModifierOutcomeLossDie", {
+      base: modifierOutcome.lossDieBase,
+      final: modifierOutcome.lossDieFinal
+    }));
+  }
+  if (modifierOutcome?.showSuccessThreshold) {
+    outcomeLines.push(game.i18n.format("INDYVENTURES.Chat.ModifierOutcomeSuccessThreshold", {
+      base: modifierOutcome.successThresholdBase,
+      final: modifierOutcome.successThresholdFinal
+    }));
+  }
+  if (modifierOutcome?.showProfitBonus) {
+    outcomeLines.push(game.i18n.format("INDYVENTURES.Chat.ModifierOutcomeProfitRoll", {
+      raw: modifierOutcome.rawProfitRollTotal,
+      bonus: modifierOutcome.profitRollBonus,
+      total: modifierOutcome.profitRollTotal
+    }));
+  }
+
+  for (const effect of modifierEffects) {
+    if (!effect) continue;
+    const name = String(effect.name ?? "").trim() || "-";
+    const summary = String(effect.summary ?? "").trim();
+    const lines = [name];
+    if (summary) lines.push(`  ${summary}`);
+
+    if (effect.hasDuration) {
+      const durationText = effect.consumePerTurn
+        ? game.i18n.format("INDYVENTURES.Chat.ModifierTurnsTick", {
+          before: effect.remainingBefore,
+          after: effect.remainingAfter
+        })
+        : game.i18n.format("INDYVENTURES.Chat.ModifierTurnsStatic", {
+          remaining: effect.remainingBefore
+        });
+      lines.push(`  ${durationText}`);
+    }
+
+    if (Array.isArray(effect.impactLines) && effect.impactLines.length) {
+      for (const impact of effect.impactLines) {
+        lines.push(`  ${impact}`);
+      }
+    }
+
+    effectBlocks.push(lines.join("\n"));
+  }
+
+  return [...outcomeLines, ...effectBlocks].join("\n\n");
+}
+
 function dieIndex(die) {
   return DICE_STEPS.indexOf(parseEffectDie(die) ?? "");
 }
@@ -1634,6 +1695,10 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
         consumePerTurn: Boolean(effect.consumePerTurn)
       };
     });
+  const hasModifierEffects = modifierEffects.length > 0;
+  const modifierEffectsTooltip = hasModifierEffects
+    ? buildModifierEffectsTooltip(modifierEffects, modifierOutcome)
+    : "";
   const consumedOnGrowEffects = grew
     ? effectModifiers.growConsumableEffects.map(effect => effect.effectName).filter(Boolean)
     : [];
@@ -1734,6 +1799,8 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
     failed,
     boons,
     hasPurchasableBoons: boons.some(boon => boon.purchasable),
+    hasModifierEffects,
+    modifierEffectsTooltip,
     modifierOutcome,
     modifierEffects
   };

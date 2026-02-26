@@ -281,6 +281,10 @@
   border-radius: 0.25rem;
 }
 
+.indy-ventures-card .indy-net-line .indy-net-breakdown {
+  cursor: help;
+}
+
 .indy-ventures-card .indy-net-line .indy-net-value.is-positive {
   color: #1d5e27;
   background: rgba(29, 94, 39, 0.12);
@@ -294,6 +298,11 @@
 .indy-ventures-card .indy-net-line .indy-net-value.is-neutral {
   color: #63533f;
   background: rgba(99, 83, 63, 0.12);
+}
+
+#tooltip.indy-venture-net-tooltip {
+  max-width: min(30rem, calc(100vw - 2rem));
+  text-align: left;
 }
 
 .indy-ventures-card .indy-profit-die-line.is-increase {
@@ -421,6 +430,17 @@
 
 .indy-bastion-modifiers p {
   margin: 0.05rem 0;
+}
+
+.indy-ventures-card .indy-venture-effects-applied {
+  cursor: help;
+}
+
+#tooltip.indy-venture-effects-tooltip {
+  max-width: min(36rem, calc(100vw - 2rem));
+  line-height: 1.35;
+  text-align: left;
+  white-space: pre-line;
 }
 
 .indy-boon-editor-app {

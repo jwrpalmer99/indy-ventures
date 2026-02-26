@@ -33,9 +33,11 @@
           </p>
         {{/if}}
         <p class="indy-net-line">
-          <span>{{ localize "INDYVENTURES.Chat.IncomeLabel" }}: {{ income }} gp</span> |
-          <span>{{ localize "INDYVENTURES.Chat.OutgoingsLabel" }}: {{ outgoings }} gp</span> |
-          <span class="indy-net-value {{ netClass }}">{{ localize "INDYVENTURES.Chat.NetLabel" }}: {{ net }} gp</span> |
+          <span class="indy-net-value indy-net-breakdown {{ netClass }}"
+                data-tooltip-class="indy-venture-net-tooltip"
+                data-tooltip="{{ localize "INDYVENTURES.Chat.NetBreakdownTooltip" income=income outgoings=outgoings }}">
+            {{ localize "INDYVENTURES.Chat.NetLabel" }}: {{ net }} gp
+          </span> |
           <span>{{ localize "INDYVENTURES.Chat.TreasuryLabel" }}: {{ treasury }} gp</span>
         </p>
         {{#if treasury}}
@@ -89,43 +91,13 @@
         {{#if failed}}
           <p class="hint">{{ localize "INDYVENTURES.Chat.Failed" }}</p>
         {{/if}}
-        {{#if modifierEffects.length}}
+        {{#if hasModifierEffects}}
           <div class="indy-venture-modifiers">
-            <p class="hint"><strong>{{ localize "INDYVENTURES.Chat.AppliedModifiers" }}</strong></p>
-            {{#if modifierOutcome.hasAny}}
-              {{#if modifierOutcome.showProfitDie}}
-                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeProfitDie" base=modifierOutcome.profitDieBase final=modifierOutcome.profitDieFinal }}</p>
-              {{/if}}
-              {{#if modifierOutcome.showLossDie}}
-                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeLossDie" base=modifierOutcome.lossDieBase final=modifierOutcome.lossDieFinal }}</p>
-              {{/if}}
-              {{#if modifierOutcome.showSuccessThreshold}}
-                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeSuccessThreshold" base=modifierOutcome.successThresholdBase final=modifierOutcome.successThresholdFinal }}</p>
-              {{/if}}
-              {{#if modifierOutcome.showProfitBonus}}
-                <p class="hint">{{ localize "INDYVENTURES.Chat.ModifierOutcomeProfitRoll" raw=modifierOutcome.rawProfitRollTotal bonus=modifierOutcome.profitRollBonus total=modifierOutcome.profitRollTotal }}</p>
-              {{/if}}
-            {{/if}}
-            {{#each modifierEffects}}
-              <p class="hint">
-                <strong>{{ name }}</strong>{{#if summary}}: {{ summary }}{{/if}}
-                {{#if hasDuration}}
-                  {{#if consumePerTurn}}
-                    ({{ localize "INDYVENTURES.Chat.ModifierTurnsTick" before=remainingBefore after=remainingAfter }})
-                  {{else}}
-                    ({{ localize "INDYVENTURES.Chat.ModifierTurnsStatic" remaining=remainingBefore }})
-                  {{/if}}
-                {{/if}}
-              </p>
-              {{#if impactLines.length}}
-                <p class="hint">
-                  <em>{{ localize "INDYVENTURES.Chat.ModifierImpactLabel" }}:</em>
-                  {{#each impactLines}}
-                    {{ this }}{{#unless @last}}; {{/unless}}
-                  {{/each}}
-                </p>
-              {{/if}}
-            {{/each}}
+            <p class="hint indy-venture-effects-applied"
+               data-tooltip-class="indy-venture-effects-tooltip"
+               data-tooltip="{{ modifierEffectsTooltip }}">
+              <strong>{{ localize "INDYVENTURES.Chat.VentureEffectsApplied" }}</strong>
+            </p>
           </div>
         {{/if}}
 
