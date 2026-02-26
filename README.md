@@ -1,8 +1,8 @@
 ﻿# Indy Ventures
 
-Indy Ventures adds venture automation to D&D5e bastions. Spice up your bastions with customizable projects and rewards. Run a tavern, organize a cult, open an apothecary - tally your profits and spend them on boons.
+Indy Ventures adds venture automation to D&D5e bastions. Spice up your bastions with customizable projects and rewards. Run a tavern, organize a cult, open an apothecary - tally your profits and spend them on improvements/items/active effects.
 
-The module integrates the idea of Ventures from https://blackcitadelrpg.com/running-a-business-5e/ directly into the existing Bastion Tab in 5e character sheets. Advance your bastion turn to watch your venture flourish (or fail) and purchase boons.
+The module integrates the idea of Ventures from https://blackcitadelrpg.com/running-a-business-5e/ directly into the existing Bastion Tab in 5e character sheets. Advance your bastion turn to watch your venture flourish (or fail).
 
 <img width="1486" height="695" alt="venture_image" src="https://github.com/user-attachments/assets/3b92fa94-5793-448f-a28a-7ffa9259cf53" />
 
