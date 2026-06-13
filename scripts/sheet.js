@@ -1416,25 +1416,15 @@ function splitSharedBastionFacilityContext(sheet, context) {
     return;
   }
 
-  const normal = [];
   const ventures = [];
   for (const entry of context.facilities.special.chosen ?? []) {
     const facility = actor.items?.get?.(entry.id);
     if (isIndyVentureFacility(facility)) ventures.push(entry);
-    else normal.push(entry);
   }
 
-  const normalValue = normal.filter(entry => !entry.free).length;
   const ventureValue = ventures.filter(entry => !entry.free).length;
-  context.facilities.special.chosen = normal;
-  context.facilities.special.value = normalValue;
-  context.facilities.special.max = limits.normalSpecial;
-  context.facilities.special.available = Array.fromRange(Math.max(0, limits.normalSpecial - normalValue)).map(() => ({
-    label: "DND5E.FACILITY.AvailableFacility.special.free"
-  }));
 
   bastionContextBySheet.set(sheet, {
-    chosen: ventures,
     value: ventureValue,
     max: limits.ventureSpecial,
     available: Array.fromRange(Math.max(0, limits.ventureSpecial - ventureValue)).map(() => ({
@@ -1616,9 +1606,11 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
     const facility = actor.items?.get?.(element.dataset.facilityId);
     return !facility?.system?.free;
   }).length;
+  const preparedVentureContext = bastionContextBySheet.get(sheet);
+  const effectiveVentureValue = Math.max(ventureValue, Number(preparedVentureContext?.value ?? 0));
 
   const normalAvailable = Math.max(0, limits.normalSpecial - normalValue);
-  const ventureAvailable = Math.max(0, limits.ventureSpecial - ventureValue);
+  const ventureAvailable = Math.max(0, limits.ventureSpecial - effectiveVentureValue);
   for (let i = 0; i < normalAvailable; i += 1) {
     specialList.append(tidy
       ? createTidySpecialFacilityEmptySlot(root.ownerDocument)
@@ -1630,7 +1622,7 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
   const sectionFactory = tidy ? createTidyVentureFacilitiesSection : createVentureFacilitiesSection;
   const section = sectionFactory(root.ownerDocument, {
     chosen: ventureElements,
-    value: ventureValue,
+    value: effectiveVentureValue,
     max: limits.ventureSpecial,
     available: ventureAvailable
   });
@@ -1741,6 +1733,7 @@ export function registerFacilitySheetHooks() {
     return enforceSharedFacilityUpdateLimit(item, change);
   });
   Hooks.on("renderApplicationV2", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on(`${MODULE_ID}.renderSharedBastionSheet`, (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("renderActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("renderActorSheet5e", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("renderCharacterActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));

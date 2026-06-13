@@ -782,6 +782,7 @@ function createSharedBastionActorSheetClass(BaseSheetClass) {
     async _onRender(context, options) {
       await super._onRender?.(context, options);
       markSharedBastionOnlySheet(this, this.element);
+      Hooks.callAll(`${MODULE_ID}.renderSharedBastionSheet`, this, this.element);
     }
   }
 
