@@ -9,6 +9,7 @@ import {
   parseBoonsText,
   resolveRewardDocumentSync
 } from "./utils.js";
+import { prepareFacilityVenturePermissionContext } from "./shared-bastion.js";
 
 const FLAG_CONFIG = `flags.${MODULE_ID}.config`;
 const FLAG_STATE = `flags.${MODULE_ID}.state`;
@@ -259,6 +260,7 @@ export function prepareFacilitySheetContext(facility) {
   return {
     config,
     state,
+    permissions: prepareFacilityVenturePermissionContext(facility),
     activeEffects: getFacilityVentureEffects(facility),
     diceOptions: DICE_STEPS.map(value => ({ value, label: value })),
     boonCount: boons.length,

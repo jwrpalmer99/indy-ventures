@@ -1,4 +1,10 @@
 import { MODULE_ID, SETTINGS } from "./constants.js";
+import {
+  SHARED_BASTION_DEFAULT_CONFIG,
+  SharedBastionConfigApplication,
+  applySharedBastionFacilitySlots,
+  syncSharedBastionActorOwnership
+} from "./shared-bastion.js";
 
 export function registerSettings() {
   game.settings.register(MODULE_ID, SETTINGS.integrateBastion, {
@@ -62,6 +68,28 @@ export function registerSettings() {
       min: 30,
       max: 600,
       step: 10
+    }
+  });
+
+  game.settings.registerMenu(MODULE_ID, SETTINGS.sharedBastion, {
+    name: "INDYVENTURES.SharedBastion.MenuName",
+    label: "INDYVENTURES.SharedBastion.MenuLabel",
+    hint: "INDYVENTURES.SharedBastion.MenuHint",
+    icon: "fas fa-chess-rook",
+    type: SharedBastionConfigApplication,
+    restricted: true
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.sharedBastion, {
+    name: "INDYVENTURES.SharedBastion.SettingName",
+    scope: "world",
+    config: false,
+    type: Object,
+    default: SHARED_BASTION_DEFAULT_CONFIG,
+    onChange: () => {
+      if (!game.ready) return;
+      applySharedBastionFacilitySlots();
+      syncSharedBastionActorOwnership();
     }
   });
 }

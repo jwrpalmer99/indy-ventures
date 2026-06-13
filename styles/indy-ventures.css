@@ -18,6 +18,77 @@
   gap: 0.4rem;
 }
 
+.indy-ventures-sheet .indy-venture-permissions .form-fields {
+  gap: 0.45rem;
+}
+
+.indy-ventures-sheet .indy-venture-permissions-default {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+  width: 100%;
+}
+
+.indy-ventures-sheet .indy-venture-permissions-default label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.indy-ventures-sheet .indy-venture-permissions-default select {
+  width: 100%;
+}
+
+.indy-ventures-sheet .indy-venture-permissions-list {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.indy-ventures-sheet .indy-venture-permission-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(11rem, 15rem);
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.indy-ventures-sheet .indy-venture-permission-user {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.indy-ventures-sheet .indy-venture-permission-user strong,
+.indy-ventures-sheet .indy-venture-permission-user span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-ventures-sheet .indy-venture-permission-user span,
+.indy-ventures-sheet .indy-venture-permission-select span {
+  font-size: 0.78rem;
+  line-height: 1.2;
+  opacity: 0.82;
+}
+
+.indy-ventures-sheet .indy-venture-permission-select {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.indy-ventures-sheet .indy-venture-permission-select select {
+  width: 100%;
+  min-width: 0;
+}
+
 .indy-ventures-sheet .indy-boon-editor-open {
   font-size: 0.8rem;
   line-height: 1.2;
@@ -249,14 +320,38 @@
   color: #8f2b2b;
 }
 
-.indy-ventures-card .indy-venture-row header {
+.indy-ventures-card .indy-venture-row-summary {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   min-width: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.indy-ventures-card .indy-venture-row-summary::marker,
+.indy-ventures-card .indy-venture-row-summary::-webkit-details-marker {
+  display: none;
+  content: "";
+}
+
+.indy-ventures-card .indy-venture-row-summary::before {
+  content: "\25B6";
+  flex: 0 0 auto;
+  margin-top: 0.18rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.85;
+  transition: transform 120ms ease;
+}
+
+.indy-ventures-card .indy-venture-row[open] > .indy-venture-row-summary::before {
+  transform: rotate(90deg);
 }
 
 .indy-ventures-card .indy-venture-row h4 {
+  flex: 1 1 auto;
   margin: 0;
   font-size: 0.95rem;
   min-width: 0;
@@ -264,11 +359,17 @@
   word-break: break-word;
 }
 
-.indy-ventures-card .indy-venture-row header > span {
+.indy-ventures-card .indy-venture-row-summary > span {
+  flex: 0 1 45%;
   text-align: right;
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.indy-ventures-card .indy-venture-row-body {
+  margin-top: 0.25rem;
+  padding-left: 1.15rem;
 }
 
 .indy-ventures-card .indy-venture-row p {
@@ -786,6 +887,94 @@
   line-height: 1.25;
 }
 
+.indy-venture-readonly-action:disabled {
+  cursor: not-allowed;
+}
+
+.dnd5e2.sheet.actor.character .tab[data-tab="bastion"] .contents:has(.indy-venture-facilities) {
+  grid-template:
+    "a a" auto
+    "b c" auto
+    "b d" 1fr
+    / minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dnd5e2.sheet.actor.character .tab[data-tab="bastion"] .contents .indy-venture-facilities {
+  grid-area: d;
+  min-width: 0;
+}
+
+.dnd5e2.sheet.actor.character .tab[data-tab="bastion"] .contents .indy-venture-facilities h3 > span {
+  line-height: 1;
+}
+
+.indy-shared-bastion-config .indy-shared-bastion-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.indy-shared-bastion-config .card {
+  margin: 0;
+  padding: 0.5rem 0.65rem 0.65rem;
+}
+
+.indy-shared-bastion-config .form-group {
+  align-items: center;
+}
+
+.indy-shared-bastion-config .form-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.indy-shared-bastion-config .form-fields select {
+  min-width: 0;
+  width: 100%;
+}
+
+.indy-shared-bastion-config .form-fields button {
+  flex: 0 0 auto;
+  min-height: var(--form-field-height, 32px);
+  white-space: nowrap;
+}
+
+.indy-shared-bastion-users {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.indy-shared-bastion-users th,
+.indy-shared-bastion-users td {
+  padding: 0.35rem 0.45rem;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.indy-shared-bastion-users th:nth-child(1),
+.indy-shared-bastion-users td:nth-child(1) {
+  width: 42%;
+}
+
+.indy-shared-bastion-users th:nth-child(2),
+.indy-shared-bastion-users td:nth-child(2) {
+  width: 32%;
+}
+
+.indy-shared-bastion-users th:nth-child(3),
+.indy-shared-bastion-users td:nth-child(3) {
+  width: 26%;
+}
+
+.indy-shared-bastion-users select {
+  width: 100%;
+}
+
 @media (max-width: 920px) {
   .indy-ventures-sheet .form-fields.indy-boons-fields {
     width: 100%;
@@ -806,6 +995,16 @@
 }
 
 @media (max-width: 700px) {
+  .indy-ventures-sheet .indy-venture-permissions-default {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .indy-ventures-sheet .indy-venture-permission-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
   .indy-boon-modifier-form .form-group {
     grid-template-columns: 1fr;
     align-items: stretch;

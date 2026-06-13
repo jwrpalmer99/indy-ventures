@@ -1,4 +1,4 @@
-import { MODULE_ID, TEMPLATE_PATHS } from "./constants.js";
+import { MODULE_ID, SETTINGS, TEMPLATE_PATHS } from "./constants.js";
 import {
   getFacilityConfig,
   getFacilityState,
@@ -15,12 +15,21 @@ import {
   resolveRewardDocumentSync
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
+import {
+  canManageFacilityVenture,
+  canViewFacilityVenture,
+  isSharedBastionActor,
+  withFacilityVentureLock
+} from "./shared-bastion.js";
 
 const BASTION_DURATION_FLAG = `flags.${MODULE_ID}.bastionDuration`;
 const BASTION_DURATION_CHANGE_PREFIX = `${BASTION_DURATION_FLAG}.`;
 const BOON_REWARD_SOURCE_FLAG = `flags.${MODULE_ID}.boonRewardSource`;
 const BOON_REWARD_TEMPLATE_ID_FLAG = `flags.${MODULE_ID}.boonRewardTemplateId`;
-const boonPurchaseLocks = new Map();
+const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
+const pendingVentureActionRequests = new Map();
+const pendingVentureRollRequests = new Map();
+let ventureActionSocketRegistered = false;
 
 function getRenderTemplate() {
   return foundry.applications?.handlebars?.renderTemplate ?? renderTemplate;
@@ -31,6 +40,111 @@ function resolveMessageHtmlRoot(html) {
   if (Array.isArray(html) && (html[0] instanceof HTMLElement)) return html[0];
   if (html?.jquery && (html[0] instanceof HTMLElement)) return html[0];
   return null;
+}
+
+function emitSocket(payload) {
+  game.socket?.emit(SOCKET_NAMESPACE, payload);
+}
+
+function getPrimaryGmUser() {
+  return game.users
+    .filter(user => user.active && user.isGM)
+    .sort((a, b) => a.id.localeCompare(b.id))[0] ?? null;
+}
+
+function isPrimaryGmUser(user = game.user) {
+  const primaryGm = getPrimaryGmUser();
+  return Boolean(user?.isGM && primaryGm && (primaryGm.id === user.id));
+}
+
+function clampTimeoutSeconds(value, fallbackSeconds = 180) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallbackSeconds;
+  return Math.min(Math.max(parsed, 30), 600);
+}
+
+function getRollTimeoutMs() {
+  const seconds = clampTimeoutSeconds(
+    game.settings?.get(MODULE_ID, SETTINGS.rollPromptTimeoutSeconds),
+    180
+  );
+  return seconds * 1000;
+}
+
+function getActionTimeoutMs() {
+  return 60_000;
+}
+
+function formatMessage(key, data = {}) {
+  return data && Object.keys(data).length
+    ? game.i18n.format(key, data)
+    : game.i18n.localize(key);
+}
+
+function actionResult(ok, level, key, data = {}, notify = true) {
+  const message = key ? formatMessage(key, data) : "";
+  if (notify && message) {
+    const method = ui.notifications?.[level] ?? ui.notifications?.info;
+    method?.call(ui.notifications, message);
+  }
+  return { ok, level, message };
+}
+
+function okResult(key, data = {}, notify = true) {
+  return actionResult(true, "info", key, data, notify);
+}
+
+function warnResult(key, data = {}, notify = true) {
+  return actionResult(false, "warn", key, data, notify);
+}
+
+function errorResult(message, notify = true) {
+  if (notify && message) ui.notifications.error(message);
+  return { ok: false, level: "error", message };
+}
+
+function resolveDocumentSync(uuid) {
+  const value = String(uuid ?? "").trim();
+  if (!value) return null;
+  if (globalThis.fromUuidSync) {
+    try {
+      return fromUuidSync(value, { strict: false });
+    } catch (error) {
+      moduleLog("Unable to synchronously resolve document UUID", {
+        uuid: value,
+        error: String(error?.message ?? error)
+      });
+    }
+  }
+  if (value.startsWith("Actor.")) {
+    const id = value.slice("Actor.".length).split(".")[0];
+    return game.actors.get(id) ?? null;
+  }
+  if (value.startsWith("ChatMessage.")) {
+    const id = value.slice("ChatMessage.".length).split(".")[0];
+    return game.messages.get(id) ?? null;
+  }
+  return null;
+}
+
+async function resolveDocument(uuid, fallbackCollection = null) {
+  const value = String(uuid ?? "").trim();
+  if (!value) return null;
+  try {
+    const resolved = await fromUuid(value);
+    if (resolved) return resolved;
+  } catch (error) {
+    moduleLog("Unable to resolve document UUID", {
+      uuid: value,
+      error: String(error?.message ?? error)
+    });
+  }
+  const parts = value.split(".");
+  return fallbackCollection?.get?.(parts[parts.length - 1]) ?? resolveDocumentSync(value);
+}
+
+async function withFacilityActionLock(facilityUuid, work) {
+  return withFacilityVentureLock(facilityUuid, work);
 }
 
 function parseModifierNumber(value, fallback = 0) {
@@ -200,7 +314,35 @@ function appendBastionModifierSection(message, html) {
   root.append(section);
 }
 
-async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
+async function requestRollFromUser({
+  targetUser,
+  actor,
+  facilityName,
+  formula,
+  rollLabel
+}) {
+  const requestId = foundry.utils.randomID();
+  const timeoutMs = getRollTimeoutMs();
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => {
+      pendingVentureRollRequests.delete(requestId);
+      resolve({ timedOut: true, total: null, userId: targetUser.id });
+    }, timeoutMs);
+
+    pendingVentureRollRequests.set(requestId, { resolve, timeout });
+    emitSocket({
+      type: "ventureRollPrompt",
+      requestId,
+      targetUserId: targetUser.id,
+      actorUuid: actor?.uuid ?? "",
+      facilityName,
+      formula,
+      rollLabel
+    });
+  });
+}
+
+async function requestUserRoll({ formula, actor, facilityName, rollLabel, targetUser = game.user }) {
   const title = game.i18n.localize("INDYVENTURES.RollPrompt.Title");
   const content = game.i18n.format("INDYVENTURES.RollPrompt.Content", {
     rollLabel,
@@ -212,6 +354,25 @@ async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
     rollLabel,
     facility: facilityName
   });
+
+  const canDelegate = Boolean(
+    game.user?.isGM
+    && targetUser
+    && targetUser.active
+    && (targetUser.id !== game.user.id)
+  );
+
+  if (canDelegate) {
+    const delegated = await requestRollFromUser({
+      targetUser,
+      actor,
+      facilityName,
+      formula,
+      rollLabel
+    });
+    const total = Number(delegated?.total);
+    if (Number.isFinite(total)) return { total };
+  }
 
   const doRoll = async () => {
     const roll = await Roll.create(formula).evaluate({ allowInteractive: true });
@@ -262,8 +423,70 @@ async function rerenderSummaryMessage(message, actorUuid, results) {
   });
 }
 
-function canManageVenture(actor) {
-  return Boolean(game.user.isGM || actor?.isOwner);
+function canManageVenture(facility, user = game.user) {
+  return canManageFacilityVenture(facility, user);
+}
+
+function resolveActorUuidSync(uuid) {
+  const actorUuid = String(uuid ?? "").trim();
+  if (!actorUuid) return null;
+  if (actorUuid.startsWith("Actor.")) {
+    const id = actorUuid.slice("Actor.".length).split(".")[0];
+    return game.actors.get(id) ?? null;
+  }
+  if (globalThis.fromUuidSync) {
+    try {
+      return fromUuidSync(actorUuid, { strict: false });
+    } catch (error) {
+      moduleLog("Unable to synchronously resolve actor UUID", {
+        uuid: actorUuid,
+        error: String(error?.message ?? error)
+      });
+    }
+  }
+  return null;
+}
+
+function getMessageActorSync(message) {
+  const actor = message.getAssociatedActor?.() ?? null;
+  if (actor) return actor;
+  const actorUuid = message.getFlag?.(MODULE_ID, "actorUuid") ?? "";
+  return resolveActorUuidSync(actorUuid) ?? game.actors.get(message.speaker?.actor) ?? null;
+}
+
+function applyVentureSummaryPermissions(message, htmlRoot) {
+  const actor = getMessageActorSync(message);
+  if (!actor) return;
+
+  const card = htmlRoot.querySelector(".indy-ventures-card");
+  if (!card) return;
+
+  const rows = Array.from(card.querySelectorAll(".indy-venture-row"));
+  let visibleRows = 0;
+  const readOnlyTooltip = game.i18n.localize("INDYVENTURES.SharedBastion.ReadOnlyTooltip");
+
+  for (const row of rows) {
+    const facility = resolveDocumentSync(row.dataset.facilityUuid)
+      ?? actor.items?.get?.(row.dataset.facilityId);
+    if (!facility || !canViewFacilityVenture(facility, game.user, "LIMITED")) {
+      row.remove();
+      continue;
+    }
+
+    visibleRows += 1;
+    const canManage = canManageVenture(facility);
+    if (row instanceof HTMLDetailsElement) row.open = canManage;
+    if (canManage) continue;
+    for (const button of row.querySelectorAll('button[data-action="claimTreasury"], button[data-action="purchaseBoon"]')) {
+      button.disabled = true;
+      button.classList.add("indy-venture-readonly-action");
+      button.dataset.tooltip = readOnlyTooltip;
+    }
+  }
+
+  if (!visibleRows) {
+    card.innerHTML = `<p class="hint">${game.i18n.localize("INDYVENTURES.SharedBastion.NoViewPermission")}</p>`;
+  }
 }
 
 function resolveRewardDisplayFromBoon(boon) {
@@ -609,7 +832,7 @@ function getBastionDurationFromEffectData(effectData) {
   return { expireNextTurn, remainingTurns, durationFormula, consumePerTurn };
 }
 
-async function prepareBastionDurationRewardData(effectData, facility, actor) {
+async function prepareBastionDurationRewardData(effectData, facility, actor, requestingUser = game.user) {
   const duration = getBastionDurationFromEffectData(effectData);
   if (!duration) return null;
 
@@ -628,7 +851,8 @@ async function prepareBastionDurationRewardData(effectData, facility, actor) {
         formula: duration.durationFormula,
         actor,
         facilityName: facility.name,
-        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration")
+        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration"),
+        targetUser: requestingUser
       });
     } catch (error) {
       throw new Error(game.i18n.format("INDYVENTURES.Errors.BoonDurationFormulaInvalid", {
@@ -662,8 +886,8 @@ async function prepareBastionDurationRewardData(effectData, facility, actor) {
   return duration;
 }
 
-async function prepareActiveEffectRewardData(effectData, facility, actor) {
-  await prepareBastionDurationRewardData(effectData, facility, actor);
+async function prepareActiveEffectRewardData(effectData, facility, actor, requestingUser = game.user) {
+  await prepareBastionDurationRewardData(effectData, facility, actor, requestingUser);
 
   const modifierPath = `flags.${MODULE_ID}.ventureModifier`;
   if (!foundry.utils.hasProperty(effectData, modifierPath)) return effectData;
@@ -693,7 +917,8 @@ async function prepareActiveEffectRewardData(effectData, facility, actor) {
         formula: durationFormula,
         actor,
         facilityName: facility.name,
-        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration")
+        rollLabel: game.i18n.localize("INDYVENTURES.RollPrompt.Duration"),
+        targetUser: requestingUser
       });
     } catch (error) {
       throw new Error(game.i18n.format("INDYVENTURES.Errors.BoonDurationFormulaInvalid", {
@@ -727,7 +952,7 @@ async function prepareActiveEffectRewardData(effectData, facility, actor) {
   return effectData;
 }
 
-async function grantBoonReward(actor, facility, boon) {
+async function grantBoonReward(actor, facility, boon, requestingUser = game.user) {
   if (!boon.rewardUuid) return null;
 
   const rewardDoc = await fromUuid(boon.rewardUuid);
@@ -749,7 +974,7 @@ async function grantBoonReward(actor, facility, boon) {
   }
 
   if (rewardDoc.documentName === "ActiveEffect") {
-    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility, actor);
+    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility, actor, requestingUser);
     const hasVentureModifier = foundry.utils.hasProperty(effectData, `flags.${MODULE_ID}.ventureModifier`);
     const targetDocument = hasVentureModifier && facility?.createEmbeddedDocuments
       ? facility
@@ -855,22 +1080,83 @@ async function promptClaimAmount(maxAmount, ventureName) {
   });
 }
 
-async function onPurchaseBoon(message, button) {
-  const buttonData = foundry.utils.deepClone(button?.dataset ?? {});
-  const facilityUuid = String(buttonData.facilityUuid ?? "").trim();
-  if (!facilityUuid) return;
+function shouldDelegateSharedVentureAction(facility) {
+  if (!isSharedBastionActor(facility?.actor)) return false;
+  const primaryGm = getPrimaryGmUser();
+  if (!primaryGm) return !game.user?.isGM;
+  return primaryGm.id !== game.user.id;
+}
 
-  const runPurchase = async () => {
+async function requestSharedVentureAction({
+  action,
+  message,
+  facilityUuid,
+  buttonData = {},
+  amount = null
+}) {
+  const primaryGm = getPrimaryGmUser();
+  if (!primaryGm) {
+    return warnResult("INDYVENTURES.SharedBastion.GMUnavailable");
+  }
+
+  const requestId = foundry.utils.randomID();
+  const response = await new Promise(resolve => {
+    const timeout = setTimeout(() => {
+      pendingVentureActionRequests.delete(requestId);
+      resolve({ ok: false, timedOut: true });
+    }, getActionTimeoutMs());
+
+    pendingVentureActionRequests.set(requestId, { resolve, timeout });
+    emitSocket({
+      type: "ventureActionRequest",
+      requestId,
+      gmUserId: primaryGm.id,
+      userId: game.user.id,
+      action,
+      messageUuid: message.uuid,
+      messageId: message.id,
+      facilityUuid,
+      buttonData,
+      amount
+    });
+  });
+
+  if (response?.timedOut) {
+    return warnResult("INDYVENTURES.SharedBastion.ActionTimedOut");
+  }
+  if (response?.message) {
+    const level = response.level ?? (response.ok ? "info" : "warn");
+    const method = ui.notifications?.[level] ?? ui.notifications?.info;
+    method?.call(ui.notifications, response.message);
+  } else if (!response?.ok) {
+    warnResult("INDYVENTURES.SharedBastion.ActionFailed");
+  }
+  return response;
+}
+
+async function executePurchaseBoon({
+  message,
+  buttonData,
+  requestingUser = game.user,
+  notify = true
+}) {
+  const facilityUuid = String(buttonData?.facilityUuid ?? "").trim();
+  if (!facilityUuid) return errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), notify);
+
+  return withFacilityActionLock(facilityUuid, async () => {
     const facility = await fromUuid(facilityUuid);
-    if (!facility || facility.documentName !== "Item") return;
+    if (!facility || facility.documentName !== "Item") {
+      return errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), notify);
+    }
     const actor = facility.actor;
-    if (!canManageVenture(actor)) {
-      ui.notifications.warn("INDYVENTURES.Errors.NotOwner", { localize: true });
-      return;
+    if (!canManageVenture(facility, requestingUser)) {
+      return warnResult("INDYVENTURES.SharedBastion.NoManagePermission", {}, notify);
     }
 
     const requestedIndex = Number(buttonData.boonIndex);
-    if (!Number.isFinite(requestedIndex)) return;
+    if (!Number.isFinite(requestedIndex)) {
+      return warnResult("INDYVENTURES.Errors.StaleVentureSummary", {}, notify);
+    }
     const requestedKey = String(buttonData.boonKey ?? "").trim();
 
     const config = getFacilityConfig(facility);
@@ -885,10 +1171,10 @@ async function onPurchaseBoon(message, button) {
         actor: actor.name,
         facility: facility.name,
         requestedIndex,
-        requestedKey
+        requestedKey,
+        requestingUser: requestingUser?.name ?? null
       });
-      ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
-      return;
+      return warnResult("INDYVENTURES.Errors.StaleVentureSummary", {}, notify);
     }
     if (resolved.matchedByKey) {
       moduleLog("Boon purchase: resolved index mismatch by key", {
@@ -910,8 +1196,7 @@ async function onPurchaseBoon(message, button) {
       state.boonPurchasesTurnId = turnId;
       state.boonPurchases = {};
     } else if (turnId && state.turnId && (state.turnId !== turnId)) {
-      ui.notifications.warn("INDYVENTURES.Errors.StaleVentureSummary", { localize: true });
-      return;
+      return warnResult("INDYVENTURES.Errors.StaleVentureSummary", {}, notify);
     } else if (state.turnId && (state.boonPurchasesTurnId !== state.turnId)) {
       state.boonPurchasesTurnId = state.turnId;
       state.boonPurchases = {};
@@ -965,7 +1250,7 @@ async function onPurchaseBoon(message, button) {
         summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
         await rerenderSummaryMessage(message, actorUuid, results);
       }
-      ui.notifications.warn(game.i18n.format(key, {
+      return warnResult(key, {
         boon: boon.name,
         limit: effectivePurchaseState.blockedByGroupLimit
           ? (effectivePurchaseState.groupPerTurnLimit ?? game.i18n.localize("INDYVENTURES.Chat.Unlimited"))
@@ -975,8 +1260,7 @@ async function onPurchaseBoon(message, button) {
           : effectivePurchaseState.purchasedThisTurn,
         mode: effectivePurchaseState.purchaseWhenLabel,
         group: effectivePurchaseState.group || "-"
-      }));
-      return;
+      }, notify);
     }
 
     const boonKey = String(effectivePurchaseState.key ?? buildBoonKey(boon));
@@ -998,13 +1282,14 @@ async function onPurchaseBoon(message, button) {
       treasuryAfter: state.treasury,
       purchasedThisTurnBefore: previousPurchaseCount,
       purchasedThisTurnAfter: getBoonPurchasesThisTurn(state, boonIndex, boonKey),
-      rewardUuid: boon.rewardUuid || null
+      rewardUuid: boon.rewardUuid || null,
+      requestingUser: requestingUser?.name ?? null
     });
 
     let rewardName = null;
     if (boon.rewardUuid) {
       try {
-        rewardName = await grantBoonReward(actor, facility, boon);
+        rewardName = await grantBoonReward(actor, facility, boon, requestingUser);
       } catch (error) {
         state.treasury = previousTreasury;
         if (previousPurchaseCount > 0) {
@@ -1013,19 +1298,9 @@ async function onPurchaseBoon(message, button) {
           delete state.boonPurchases[String(boonIndex)];
         }
         await updateFacilityVenture(facility, config, state);
-        ui.notifications.error(error.message);
-        return;
+        return errorResult(error.message, notify);
       }
     }
-
-    const notificationKey = rewardName
-      ? "INDYVENTURES.Notifications.BoonPurchasedReward"
-      : "INDYVENTURES.Notifications.BoonPurchased";
-    ui.notifications.info(game.i18n.format(notificationKey, {
-      boon: boon.name,
-      venture: config.ventureName || facility.name,
-      reward: rewardName
-    }));
 
     if (summary) {
       summary.treasury = state.treasury;
@@ -1034,64 +1309,133 @@ async function onPurchaseBoon(message, button) {
       summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
       await rerenderSummaryMessage(message, actorUuid, results);
     }
-  };
 
-  const previous = boonPurchaseLocks.get(facilityUuid) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(runPurchase);
-  boonPurchaseLocks.set(facilityUuid, current);
-  try {
-    await current;
-  } finally {
-    if (boonPurchaseLocks.get(facilityUuid) === current) {
-      boonPurchaseLocks.delete(facilityUuid);
+    const notificationKey = rewardName
+      ? "INDYVENTURES.Notifications.BoonPurchasedReward"
+      : "INDYVENTURES.Notifications.BoonPurchased";
+    return okResult(notificationKey, {
+      boon: boon.name,
+      venture: config.ventureName || facility.name,
+      reward: rewardName
+    }, notify);
+  });
+}
+
+async function executeClaimTreasury({
+  message,
+  facilityUuid,
+  amount,
+  requestingUser = game.user,
+  notify = true
+}) {
+  const resolvedFacilityUuid = String(facilityUuid ?? "").trim();
+  if (!resolvedFacilityUuid) return errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), notify);
+
+  return withFacilityActionLock(resolvedFacilityUuid, async () => {
+    const facility = await fromUuid(resolvedFacilityUuid);
+    if (!facility || facility.documentName !== "Item") {
+      return errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), notify);
     }
+    const actor = facility.actor;
+    if (!canManageVenture(facility, requestingUser)) {
+      return warnResult("INDYVENTURES.SharedBastion.NoManagePermission", {}, notify);
+    }
+
+    const config = getFacilityConfig(facility);
+    const state = getFacilityState(facility, config);
+    if (!state.treasury) {
+      return warnResult("INDYVENTURES.Errors.NoTreasury", {}, notify);
+    }
+
+    const maxClaim = state.treasury;
+    const claimAmount = Number.parseInt(amount, 10);
+    if (!Number.isFinite(claimAmount) || (claimAmount < 1) || (claimAmount > maxClaim)) {
+      return warnResult("INDYVENTURES.Errors.InvalidClaimAmount", { maxAmount: maxClaim }, notify);
+    }
+
+    state.treasury = maxClaim - claimAmount;
+    await updateFacilityVenture(facility, config, state);
+    await actor.update({ "system.currency.gp": getActorGp(actor) + claimAmount });
+
+    const actorUuid = message.getFlag(MODULE_ID, "actorUuid");
+    const results = foundry.utils.deepClone(message.getFlag(MODULE_ID, "results")) ?? [];
+    const summary = results.find(r => r.facilityUuid === facility.uuid);
+    if (summary) {
+      const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
+      summary.treasury = state.treasury;
+      summary.boons = buildSummaryBoons(config, state, turnNet);
+      summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
+      await rerenderSummaryMessage(message, actorUuid, results);
+    }
+
+    return okResult("INDYVENTURES.Notifications.ClaimedTreasury", {
+      amount: claimAmount,
+      venture: config.ventureName || facility.name,
+      actor: actor.name
+    }, notify);
+  });
+}
+
+async function onPurchaseBoon(message, button) {
+  const buttonData = foundry.utils.deepClone(button?.dataset ?? {});
+  const facilityUuid = String(buttonData.facilityUuid ?? "").trim();
+  if (!facilityUuid) return;
+
+  const facility = await fromUuid(facilityUuid);
+  if (!facility || facility.documentName !== "Item") return;
+  if (!canManageVenture(facility)) {
+    warnResult("INDYVENTURES.SharedBastion.NoManagePermission");
+    return;
   }
+
+  if (shouldDelegateSharedVentureAction(facility)) {
+    await requestSharedVentureAction({
+      action: "purchaseBoon",
+      message,
+      facilityUuid,
+      buttonData
+    });
+    return;
+  }
+
+  await executePurchaseBoon({ message, buttonData });
 }
 
 async function onClaimTreasury(message, button) {
-  const facility = await fromUuid(button.dataset.facilityUuid);
+  const facilityUuid = String(button.dataset.facilityUuid ?? "").trim();
+  const facility = await fromUuid(facilityUuid);
   if (!facility || facility.documentName !== "Item") return;
-  const actor = facility.actor;
-  if (!canManageVenture(actor)) {
-    ui.notifications.warn("INDYVENTURES.Errors.NotOwner", { localize: true });
+  if (!canManageVenture(facility)) {
+    warnResult("INDYVENTURES.SharedBastion.NoManagePermission");
     return;
   }
 
   const config = getFacilityConfig(facility);
   const state = getFacilityState(facility, config);
   if (!state.treasury) {
-    ui.notifications.warn("INDYVENTURES.Errors.NoTreasury", { localize: true });
+    warnResult("INDYVENTURES.Errors.NoTreasury");
     return;
   }
 
   const maxClaim = state.treasury;
   const amount = await promptClaimAmount(maxClaim, config.ventureName || facility.name);
   if (amount === null) return;
-  if (!Number.isFinite(amount) || (amount < 1) || (amount > maxClaim)) {
-    ui.notifications.warn(game.i18n.format("INDYVENTURES.Errors.InvalidClaimAmount", { maxAmount: maxClaim }));
+
+  if (shouldDelegateSharedVentureAction(facility)) {
+    await requestSharedVentureAction({
+      action: "claimTreasury",
+      message,
+      facilityUuid,
+      amount
+    });
     return;
   }
 
-  state.treasury = maxClaim - amount;
-  await updateFacilityVenture(facility, config, state);
-  await actor.update({ "system.currency.gp": getActorGp(actor) + amount });
-
-  ui.notifications.info(game.i18n.format("INDYVENTURES.Notifications.ClaimedTreasury", {
-    amount,
-    venture: config.ventureName || facility.name,
-    actor: actor.name
-  }));
-
-  const actorUuid = message.getFlag(MODULE_ID, "actorUuid");
-  const results = foundry.utils.deepClone(message.getFlag(MODULE_ID, "results")) ?? [];
-  const summary = results.find(r => r.facilityUuid === facility.uuid);
-  if (summary) {
-    const turnNet = Number(summary?.net ?? state.lastTurnNet ?? 0) || 0;
-    summary.treasury = state.treasury;
-    summary.boons = buildSummaryBoons(config, state, turnNet);
-    summary.hasPurchasableBoons = summary.boons.some(entry => entry.purchasable);
-    await rerenderSummaryMessage(message, actorUuid, results);
-  }
+  await executeClaimTreasury({
+    message,
+    facilityUuid,
+    amount
+  });
 }
 
 function onToggleBoonDetails(button) {
@@ -1108,7 +1452,135 @@ function onToggleBoonDetails(button) {
   button.dataset.tooltip = tooltip;
 }
 
+async function onVentureActionRequest(payload) {
+  if (!game.user?.isGM) return;
+  if (payload.gmUserId !== game.user.id) return;
+  if (!isPrimaryGmUser()) return;
+
+  const requestUser = game.users.get(payload.userId);
+  let result = null;
+  try {
+    const message = await resolveDocument(payload.messageUuid || payload.messageId, game.messages);
+    const facility = await resolveDocument(payload.facilityUuid);
+    if (!requestUser || !message || !facility || (facility.documentName !== "Item")) {
+      result = errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), false);
+    } else if (!canManageVenture(facility, requestUser)) {
+      result = warnResult("INDYVENTURES.SharedBastion.NoManagePermission", {}, false);
+    } else if (payload.action === "purchaseBoon") {
+      const buttonData = foundry.utils.deepClone(payload.buttonData ?? {});
+      buttonData.facilityUuid = facility.uuid;
+      result = await executePurchaseBoon({
+        message,
+        buttonData,
+        requestingUser: requestUser,
+        notify: false
+      });
+    } else if (payload.action === "claimTreasury") {
+      result = await executeClaimTreasury({
+        message,
+        facilityUuid: facility.uuid,
+        amount: payload.amount,
+        requestingUser: requestUser,
+        notify: false
+      });
+    } else {
+      result = errorResult(formatMessage("INDYVENTURES.SharedBastion.ActionFailed"), false);
+    }
+  } catch (error) {
+    moduleLog("Shared venture action request failed", {
+      action: payload.action,
+      requestId: payload.requestId,
+      userId: payload.userId,
+      error: String(error?.message ?? error)
+    });
+    result = errorResult(String(error?.message ?? error), false);
+  }
+
+  emitSocket({
+    type: "ventureActionResponse",
+    requestId: payload.requestId,
+    targetUserId: payload.userId,
+    ok: Boolean(result?.ok),
+    level: result?.level ?? (result?.ok ? "info" : "warn"),
+    message: result?.message ?? ""
+  });
+}
+
+function onVentureActionResponse(payload) {
+  if (payload.targetUserId !== game.user.id) return;
+  const pending = pendingVentureActionRequests.get(payload.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pending.resolve({
+    ok: Boolean(payload.ok),
+    level: payload.level,
+    message: payload.message,
+    timedOut: false
+  });
+  pendingVentureActionRequests.delete(payload.requestId);
+}
+
+async function onVentureRollPrompt(payload) {
+  if (payload.targetUserId !== game.user.id) return;
+
+  const actor = payload.actorUuid
+    ? await resolveDocument(payload.actorUuid, game.actors)
+    : null;
+  let total = null;
+  try {
+    const roll = await requestUserRoll({
+      formula: payload.formula,
+      actor,
+      facilityName: payload.facilityName,
+      rollLabel: payload.rollLabel,
+      targetUser: game.user
+    });
+    const parsed = Number(roll?.total);
+    total = Number.isFinite(parsed) ? parsed : null;
+  } catch (error) {
+    moduleLog("Shared venture roll prompt failed", {
+      user: game.user.name,
+      formula: payload.formula,
+      rollLabel: payload.rollLabel,
+      error: String(error?.message ?? error)
+    });
+  }
+
+  emitSocket({
+    type: "ventureRollResponse",
+    requestId: payload.requestId,
+    userId: game.user.id,
+    total
+  });
+}
+
+function onVentureRollResponse(payload) {
+  const pending = pendingVentureRollRequests.get(payload.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pending.resolve({
+    total: payload.total,
+    userId: payload.userId,
+    timedOut: false
+  });
+  pendingVentureRollRequests.delete(payload.requestId);
+}
+
+function registerVentureActionSocket() {
+  if (ventureActionSocketRegistered || !game.socket) return;
+  ventureActionSocketRegistered = true;
+  game.socket.on(SOCKET_NAMESPACE, async payload => {
+    if (!payload || (typeof payload !== "object")) return;
+    if (payload.type === "ventureActionRequest") await onVentureActionRequest(payload);
+    else if (payload.type === "ventureActionResponse") onVentureActionResponse(payload);
+    else if (payload.type === "ventureRollPrompt") await onVentureRollPrompt(payload);
+    else if (payload.type === "ventureRollResponse") onVentureRollResponse(payload);
+  });
+}
+
 export function registerChatHooks() {
+  Hooks.once("ready", registerVentureActionSocket);
+
   Hooks.on("dnd5e.renderChatMessage", (message, html) => {
     const htmlRoot = resolveMessageHtmlRoot(html);
     if (!htmlRoot) return;
@@ -1116,6 +1588,7 @@ export function registerChatHooks() {
 
     const type = message.getFlag(MODULE_ID, "type");
     if (type !== "ventureSummary") return;
+    applyVentureSummaryPermissions(message, htmlRoot);
     if (htmlRoot.dataset.indyVenturesBound === "1") return;
     htmlRoot.dataset.indyVenturesBound = "1";
 

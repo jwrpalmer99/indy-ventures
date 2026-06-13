@@ -15,6 +15,11 @@ import {
   shiftDie
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
+import {
+  getPreferredVentureUser,
+  getVentureSummaryWhisperUserIds,
+  withFacilityVentureLock
+} from "./shared-bastion.js";
 
 const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
 const pendingCoverageRequests = new Map();
@@ -58,6 +63,10 @@ function getRollTimeoutMs() {
     180
   );
   return seconds * 1000;
+}
+
+function getRollPromptAckTimeoutMs() {
+  return 10_000;
 }
 
 function buildBastionDedupKey(message, bastionData) {
@@ -144,12 +153,39 @@ async function requestRollFromOwner({
   const requestId = foundry.utils.randomID();
   const timeoutMs = getRollTimeoutMs();
   const response = await new Promise(resolve => {
-    const timeout = setTimeout(() => {
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(ackTimeout);
       pendingRollRequests.delete(requestId);
-      resolve({ timedOut: true });
-    }, timeoutMs);
+      resolve(result);
+    };
 
-    pendingRollRequests.set(requestId, { resolve, timeout });
+    const timeout = setTimeout(() => {
+      finish({ timedOut: true, userId: targetUser.id });
+    }, timeoutMs);
+    const ackTimeout = setTimeout(() => {
+      finish({ timedOut: true, noAck: true, userId: targetUser.id });
+    }, getRollPromptAckTimeoutMs());
+
+    pendingRollRequests.set(requestId, {
+      finish,
+      timeout,
+      ackTimeout,
+      targetUserId: targetUser.id,
+      acked: false
+    });
+    moduleLog("Delegated venture roll prompt sent", {
+      actor: actor?.name ?? null,
+      facility: facilityName,
+      rollLabel,
+      formula,
+      targetUser: targetUser.name,
+      targetUserId: targetUser.id,
+      requestId
+    });
     emitSocket({
       type: "rollPrompt",
       requestId,
@@ -165,8 +201,8 @@ async function requestRollFromOwner({
   return response;
 }
 
-async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
-  const targetUser = getPreferredCoverageUser(actor);
+async function requestUserRoll({ formula, actor, facility = null, facilityName, rollLabel }) {
+  const targetUser = getPreferredCoverageUser(actor, facility);
   const canDelegate = Boolean(
     game.user?.isGM
     && targetUser
@@ -205,7 +241,9 @@ async function requestUserRoll({ formula, actor, facilityName, rollLabel }) {
     rollLabel,
     formula,
     targetUser: targetUser.name,
-    timedOut: Boolean(delegated?.timedOut)
+    timedOut: Boolean(delegated?.timedOut),
+    noAck: Boolean(delegated?.noAck),
+    targetUserActive: Boolean(targetUser.active)
   });
   return requestLocalUserRoll({ formula, actor, facilityName, rollLabel });
 }
@@ -1047,10 +1085,8 @@ function buildGroupPurchaseCountMap(boons = [], state = {}) {
   return map;
 }
 
-function getPreferredCoverageUser(actor) {
-  const activeOwners = game.users
-    .filter(user => user.active && actor.testUserPermission(user, "OWNER"));
-  return activeOwners.find(user => !user.isGM) ?? activeOwners[0] ?? null;
+function getPreferredCoverageUser(actor, facility = null) {
+  return getPreferredVentureUser(actor, "OWNER", facility);
 }
 
 async function promptCoverageChoice({
@@ -1246,7 +1282,7 @@ async function maybeCoverDeficitTreasuryOrActor({
   result.insufficientFunds = !canCoverWithTreasuryAndActor && !canCoverWithActor;
   if (result.insufficientFunds) return result;
 
-  const preferredUser = getPreferredCoverageUser(actor);
+  const preferredUser = getPreferredCoverageUser(actor, facility);
   let choice = "decline";
   if (!preferredUser || (preferredUser.id === game.user.id)) {
     choice = await promptCoverageChoice({
@@ -1353,7 +1389,7 @@ async function maybeCoverCharacterDeficit({
     return result;
   }
 
-  const preferredUser = getPreferredCoverageUser(actor);
+  const preferredUser = getPreferredCoverageUser(actor, facility);
   if (!preferredUser || (preferredUser.id === game.user.id)) {
     const choice = await promptCoverageChoice({
       actorName: actor.name,
@@ -1410,11 +1446,11 @@ async function maybeCoverCharacterDeficit({
   return result;
 }
 
-async function rollDie(formula, actor, facilityName, rollLabel) {
-  return requestUserRoll({ formula, actor, facilityName, rollLabel });
+async function rollDie(formula, actor, facility, facilityName, rollLabel) {
+  return requestUserRoll({ formula, actor, facility, facilityName, rollLabel });
 }
 
-async function processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage) {
+function prepareSingleVentureTurn(facility, actor, turnId, modifierDurationUsage) {
   const config = getFacilityConfig(facility);
   const state = getFacilityState(facility, config);
   if (!isFacilityEligibleForVenture(facility, config, state)) return null;
@@ -1486,18 +1522,85 @@ async function processSingleVenture(facility, actor, wallet, turnId, modifierDur
       }))
   });
 
-  const profitRoll = await rollDie(
+  return {
+    actor,
+    facility,
+    config,
+    state,
+    effectModifiers,
+    stateBefore,
+    baseProfitDie,
+    baseSuccessThreshold,
+    steppedProfitDie,
+    rolledProfitDie,
+    baseLossDie,
+    steppedLossDie,
+    lossDie,
+    effectiveSuccessThreshold,
+    ventureName: config.ventureName || facility.name
+  };
+}
+
+function dispatchPreparedVentureRolls(prepared) {
+  const captureRoll = promise => promise
+    .then(roll => ({ roll }))
+    .catch(error => ({ error }));
+
+  prepared.profitRollPromise = captureRoll(rollDie(
+    prepared.rolledProfitDie,
+    prepared.actor,
+    prepared.facility,
+    prepared.ventureName,
+    game.i18n.localize("INDYVENTURES.RollPrompt.Profit")
+  ));
+  prepared.lossRollPromise = captureRoll(rollDie(
+    prepared.lossDie,
+    prepared.actor,
+    prepared.facility,
+    prepared.ventureName,
+    game.i18n.localize("INDYVENTURES.RollPrompt.Loss")
+  ));
+  return prepared;
+}
+
+async function processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage, prepared = null) {
+  const context = prepared ?? prepareSingleVentureTurn(facility, actor, turnId, modifierDurationUsage);
+  if (!context) return null;
+
+  const {
+    config,
+    state,
+    effectModifiers,
+    stateBefore,
+    baseProfitDie,
+    baseSuccessThreshold,
+    steppedProfitDie,
+    rolledProfitDie,
+    baseLossDie,
+    steppedLossDie,
+    lossDie,
+    effectiveSuccessThreshold
+  } = context;
+
+  const profitRollPromise = context.profitRollPromise ?? rollDie(
     rolledProfitDie,
     actor,
+    facility,
     config.ventureName || facility.name,
     game.i18n.localize("INDYVENTURES.RollPrompt.Profit")
   );
-  const lossRoll = await rollDie(
+  const lossRollPromise = context.lossRollPromise ?? rollDie(
     lossDie,
     actor,
+    facility,
     config.ventureName || facility.name,
     game.i18n.localize("INDYVENTURES.RollPrompt.Loss")
   );
+  const [profitRollResult, lossRollResult] = await Promise.all([profitRollPromise, lossRollPromise]);
+  if (profitRollResult?.error) throw profitRollResult.error;
+  if (lossRollResult?.error) throw lossRollResult.error;
+  const profitRoll = profitRollResult?.roll ?? profitRollResult;
+  const lossRoll = lossRollResult?.roll ?? lossRollResult;
 
   const rawProfitRollTotal = Number(profitRoll.total);
   const profitRollBonus = effectModifiers.aggregate.profitRollBonus;
@@ -1882,6 +1985,7 @@ async function postVentureSummary(actor, results, sourceMessage) {
   return ChatMessage.implementation.create({
     content,
     speaker: getSpeaker(actor),
+    whisper: getVentureSummaryWhisperUserIds(actor, results) ?? undefined,
     flags: {
       [MODULE_ID]: {
         type: "ventureSummary",
@@ -1953,9 +2057,58 @@ export async function processActorVenturesFromBastionMessage(message) {
   const modifierDurationUsage = new Map();
   const bastionDurationEffects = collectActiveBastionDurationEffects(actor);
   queueModifierDurationUsage(modifierDurationUsage, bastionDurationEffects);
+
+  const preparedVentures = [];
   for (const facility of facilities) {
-    const result = await processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage);
-    if (result) results.push(result);
+    try {
+      const prepared = prepareSingleVentureTurn(facility, actor, turnId, modifierDurationUsage);
+      if (!prepared) continue;
+      preparedVentures.push(dispatchPreparedVentureRolls(prepared));
+    } catch (error) {
+      moduleLog("Bastion venture preparation failed for facility", {
+        actor: actor.name,
+        actorUuid: actor.uuid,
+        facility: facility.name,
+        facilityUuid: facility.uuid,
+        error: String(error?.message ?? error),
+        stack: error?.stack ?? null
+      });
+      ui.notifications?.error?.(`Indy Ventures failed while preparing ${facility.name}: ${error?.message ?? error}`);
+    }
+  }
+
+  moduleLog("Bastion venture roll prompts dispatched", {
+    actor: actor.name,
+    actorUuid: actor.uuid,
+    turnId: message.uuid,
+    facilities: preparedVentures.map(prepared => ({
+      name: prepared.facility.name,
+      uuid: prepared.facility.uuid,
+      ventureName: prepared.ventureName,
+      profitDie: prepared.rolledProfitDie,
+      lossDie: prepared.lossDie
+    }))
+  });
+
+  for (const prepared of preparedVentures) {
+    const { facility } = prepared;
+    try {
+      const result = await withFacilityVentureLock(
+        facility.uuid,
+        () => processSingleVenture(facility, actor, wallet, turnId, modifierDurationUsage, prepared)
+      );
+      if (result) results.push(result);
+    } catch (error) {
+      moduleLog("Bastion venture processing failed for facility", {
+        actor: actor.name,
+        actorUuid: actor.uuid,
+        facility: facility.name,
+        facilityUuid: facility.uuid,
+        error: String(error?.message ?? error),
+        stack: error?.stack ?? null
+      });
+      ui.notifications?.error?.(`Indy Ventures failed while processing ${facility.name}: ${error?.message ?? error}`);
+    }
   }
 
   if (wallet.dirty) {
@@ -2021,6 +2174,13 @@ async function onCoveragePrompt(payload) {
 async function onRollPrompt(payload) {
   if (payload.targetUserId !== game.user.id) return;
 
+  emitSocket({
+    type: "rollPromptAck",
+    gmUserId: payload.gmUserId,
+    requestId: payload.requestId,
+    userId: game.user.id
+  });
+
   let actor = null;
   if (payload.actorUuid) {
     try {
@@ -2061,6 +2221,20 @@ async function onRollPrompt(payload) {
   });
 }
 
+function onRollPromptAck(payload) {
+  if (!game.user.isGM) return;
+  if (payload.gmUserId !== game.user.id) return;
+  const pending = pendingRollRequests.get(payload.requestId);
+  if (!pending) return;
+  pending.acked = true;
+  clearTimeout(pending.ackTimeout);
+  moduleLog("Delegated venture roll prompt acknowledged", {
+    requestId: payload.requestId,
+    targetUserId: pending.targetUserId,
+    userId: payload.userId
+  });
+}
+
 function onCoverageResponse(payload) {
   if (!game.user.isGM) return;
   if (payload.gmUserId !== game.user.id) return;
@@ -2080,13 +2254,11 @@ function onRollResponse(payload) {
   if (payload.gmUserId !== game.user.id) return;
   const pending = pendingRollRequests.get(payload.requestId);
   if (!pending) return;
-  clearTimeout(pending.timeout);
-  pending.resolve({
+  pending.finish({
     total: payload.total,
     userId: payload.userId,
     timedOut: false
   });
-  pendingRollRequests.delete(payload.requestId);
 }
 
 export function registerCoveragePromptSocket() {
@@ -2097,6 +2269,7 @@ export function registerCoveragePromptSocket() {
     if (payload.type === "coveragePrompt") await onCoveragePrompt(payload);
     else if (payload.type === "coverageResponse") onCoverageResponse(payload);
     else if (payload.type === "rollPrompt") await onRollPrompt(payload);
+    else if (payload.type === "rollPromptAck") onRollPromptAck(payload);
     else if (payload.type === "rollResponse") onRollResponse(payload);
   });
 }

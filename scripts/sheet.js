@@ -6,9 +6,18 @@ import {
 } from "./config.js";
 import { parseBoonsText, parseBoonPerTurnLimit, parseBoonPurchaseWhen, resolveRewardDocumentSync } from "./utils.js";
 import { moduleLog } from "./logger.js";
+import {
+  canManageFacilityVenture,
+  getSharedBastionFacilitySlotLimits,
+  getSharedBastionSpecialFacilityLimitStatus,
+  isSharedBastionActor,
+  isIndyVentureFacility,
+  sanitizeFacilityVenturePermissionsPatch
+} from "./shared-bastion.js";
 
 const BOON_TEXTAREA_SELECTOR = `textarea[name="flags.${MODULE_ID}.config.boonsText"]`;
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const bastionContextBySheet = new WeakMap();
 
 function resolveHtmlRoot(sheet, html) {
   if (html instanceof HTMLElement) return html;
@@ -1321,12 +1330,252 @@ function bindFacilityEditorControls(sheet, html) {
   bindBoonTableLinks(sheet, html);
 }
 
+function hasPropertyOrNested(change, path) {
+  if (foundry.utils.hasProperty(change, path)) return true;
+  const prefix = `${path}.`;
+  return Object.keys(foundry.utils.flattenObject(change ?? {})).some(key => key.startsWith(prefix));
+}
+
+function getChangedOrCurrent(item, change, path) {
+  if (foundry.utils.hasProperty(change, path)) return foundry.utils.getProperty(change, path);
+  return foundry.utils.getProperty(item, path);
+}
+
+function getNextFacilityBucket(item, change = {}) {
+  const type = getChangedOrCurrent(item, change, "system.type.value");
+  const free = Boolean(getChangedOrCurrent(item, change, "system.free"));
+  const enabledPath = `flags.${MODULE_ID}.config.enabled`;
+  const venture = hasPropertyOrNested(change, `flags.${MODULE_ID}.config`)
+    ? foundry.utils.getProperty(change, enabledPath) === true
+    : isIndyVentureFacility(item);
+
+  if ((type !== "special") || free) return null;
+  return venture ? "venture" : "normal";
+}
+
+function getFacilityDataBucket(data) {
+  const type = foundry.utils.getProperty(data, "system.type.value");
+  const free = Boolean(foundry.utils.getProperty(data, "system.free"));
+  if ((type !== "special") || free) return null;
+  return isIndyVentureFacility(data) ? "venture" : "normal";
+}
+
+function notifySpecialFacilityLimit(status) {
+  if (!status?.enabled || status.allowed) return;
+  const typeKey = status.bucket === "venture"
+    ? "INDYVENTURES.SharedBastion.SpecialSlotsVenture"
+    : "INDYVENTURES.SharedBastion.SpecialSlotsNormal";
+  ui.notifications.warn(game.i18n.format("INDYVENTURES.SharedBastion.SpecialSlotsFull", {
+    value: status.value,
+    max: status.max,
+    type: game.i18n.localize(typeKey)
+  }));
+}
+
+function canAddSharedSpecialFacility(actor, bucket, { excludeId = "" } = {}) {
+  if (!bucket || !isSharedBastionActor(actor)) return true;
+  const status = getSharedBastionSpecialFacilityLimitStatus(actor, {
+    venture: bucket === "venture",
+    excludeId
+  });
+  if (status.allowed) return true;
+  notifySpecialFacilityLimit(status);
+  return false;
+}
+
+function enforceSharedFacilityCreateLimit(item, data = {}) {
+  const actor = item?.actor ?? item?.parent ?? null;
+  if (!isSharedBastionActor(actor)) return true;
+  const bucket = getFacilityDataBucket(data);
+  return canAddSharedSpecialFacility(actor, bucket);
+}
+
+function enforceSharedFacilityUpdateLimit(item, change = {}) {
+  const actor = item?.actor ?? item?.parent ?? null;
+  if (!isSharedBastionActor(actor)) return true;
+
+  const currentBucket = getNextFacilityBucket(item, {});
+  const nextBucket = getNextFacilityBucket(item, change);
+  if (currentBucket === nextBucket) return true;
+  return canAddSharedSpecialFacility(actor, nextBucket, { excludeId: item.id });
+}
+
+function splitSharedBastionFacilityContext(sheet, context) {
+  const actor = sheet?.document;
+  if (!isSharedBastionActor(actor)) {
+    bastionContextBySheet.delete(sheet);
+    return;
+  }
+
+  const limits = getSharedBastionFacilitySlotLimits(actor);
+  if (!limits.enabled || !context.facilities?.special) {
+    bastionContextBySheet.delete(sheet);
+    return;
+  }
+
+  const normal = [];
+  const ventures = [];
+  for (const entry of context.facilities.special.chosen ?? []) {
+    const facility = actor.items?.get?.(entry.id);
+    if (isIndyVentureFacility(facility)) ventures.push(entry);
+    else normal.push(entry);
+  }
+
+  const normalValue = normal.filter(entry => !entry.free).length;
+  const ventureValue = ventures.filter(entry => !entry.free).length;
+  context.facilities.special.chosen = normal;
+  context.facilities.special.value = normalValue;
+  context.facilities.special.max = limits.normalSpecial;
+  context.facilities.special.available = Array.fromRange(Math.max(0, limits.normalSpecial - normalValue)).map(() => ({
+    label: "DND5E.FACILITY.AvailableFacility.special.free"
+  }));
+
+  bastionContextBySheet.set(sheet, {
+    chosen: ventures,
+    value: ventureValue,
+    max: limits.ventureSpecial,
+    available: Array.fromRange(Math.max(0, limits.ventureSpecial - ventureValue)).map(() => ({
+      label: "INDYVENTURES.SharedBastion.IndyVentureAvailableSlot"
+    }))
+  });
+}
+
+function createSpecialFacilityEmptySlot(doc, { venture = false } = {}) {
+  const empty = doc.createElement("li");
+  empty.classList.add("facility", "empty", "roboto-upper");
+  if (venture) {
+    empty.dataset.action = "findItem";
+    empty.dataset.itemType = "facility";
+    empty.dataset.facilityType = "special";
+    empty.dataset.indyVentureSlot = "1";
+    empty.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureAvailableHint");
+    empty.textContent = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureAvailableSlot");
+  } else {
+    empty.dataset.action = "findItem";
+    empty.dataset.itemType = "facility";
+    empty.dataset.facilityType = "special";
+    empty.textContent = game.i18n.localize("DND5E.FACILITY.AvailableFacility.special.free");
+  }
+  return empty;
+}
+
+function createVentureFacilitiesSection(doc, { chosen = [], value = 0, max = 0, available = 0 } = {}) {
+  const section = doc.createElement("section");
+  section.classList.add("facilities", "indy-venture-facilities");
+
+  const heading = doc.createElement("h3");
+  heading.classList.add("icon");
+  const icon = doc.createElement("i");
+  icon.classList.add("fas", "fa-coins");
+  icon.setAttribute("inert", "");
+  const label = doc.createElement("span");
+  label.classList.add("roboto-upper");
+  label.textContent = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureFacilities");
+  const counter = doc.createElement("span");
+  counter.classList.add("counter");
+  counter.textContent = `${value} / ${max}`;
+  heading.append(icon, label, counter);
+
+  const list = doc.createElement("ul");
+  list.classList.add("unlist");
+  for (const entry of chosen) list.append(entry);
+  for (let i = 0; i < available; i += 1) list.append(createSpecialFacilityEmptySlot(doc, { venture: true }));
+
+  section.append(heading, list);
+  return section;
+}
+
+function renderSharedBastionFacilityBuckets(sheet, html) {
+  const actor = sheet?.document ?? sheet?.actor;
+  if (!isSharedBastionActor(actor)) return;
+  const limits = getSharedBastionFacilitySlotLimits(actor);
+  if (!limits.enabled) return;
+
+  const root = resolveHtmlRoot(sheet, html);
+  if (!root) return;
+  const special = root.querySelector(".facilities.special");
+  if (!special) return;
+  const specialList = special.querySelector("ul");
+  if (!specialList) return;
+
+  const previousVentureSection = root.querySelector(".indy-venture-facilities");
+  if (previousVentureSection) {
+    for (const moved of previousVentureSection.querySelectorAll("li.facility[data-facility-id]")) {
+      specialList.append(moved);
+    }
+    previousVentureSection.remove();
+  }
+
+  const normalElements = [];
+  const ventureElements = [];
+  for (const element of specialList.querySelectorAll("li.facility[data-facility-id]")) {
+    const facility = actor.items?.get?.(element.dataset.facilityId);
+    if (isIndyVentureFacility(facility)) ventureElements.push(element);
+    else normalElements.push(element);
+  }
+
+  for (const empty of specialList.querySelectorAll("li.facility.empty[data-facility-type='special']")) {
+    empty.remove();
+  }
+  for (const element of ventureElements) element.remove();
+
+  const normalValue = normalElements.filter(element => {
+    const facility = actor.items?.get?.(element.dataset.facilityId);
+    return !facility?.system?.free;
+  }).length;
+  const ventureValue = ventureElements.filter(element => {
+    const facility = actor.items?.get?.(element.dataset.facilityId);
+    return !facility?.system?.free;
+  }).length;
+
+  const normalAvailable = Math.max(0, limits.normalSpecial - normalValue);
+  const ventureAvailable = Math.max(0, limits.ventureSpecial - ventureValue);
+  for (let i = 0; i < normalAvailable; i += 1) {
+    specialList.append(createSpecialFacilityEmptySlot(root.ownerDocument));
+  }
+
+  const specialCounter = special.querySelector("h3 .counter");
+  if (specialCounter) specialCounter.textContent = `${normalValue} / ${limits.normalSpecial}`;
+
+  const section = createVentureFacilitiesSection(root.ownerDocument, {
+    chosen: ventureElements,
+    value: ventureValue,
+    max: limits.ventureSpecial,
+    available: ventureAvailable
+  });
+  special.after(section);
+}
+
 export function registerFacilitySheetHooks() {
+  Hooks.on("preCreateItem", (item, data) => {
+    if (item.type !== "facility") return;
+    return enforceSharedFacilityCreateLimit(item, data);
+  });
+
   Hooks.on("preUpdateItem", (item, change) => {
     if (item.type !== "facility") return;
+    if (isSharedBastionActor(item.actor)
+      && !game.user.isGM
+      && foundry.utils.hasProperty(change, `flags.${MODULE_ID}.permissions`)) {
+      ui.notifications.warn("INDYVENTURES.SharedBastion.NoConfigurePermission", { localize: true });
+      return false;
+    }
+    if (isSharedBastionActor(item.actor)
+      && !canManageFacilityVenture(item)
+      && foundry.utils.hasProperty(change, `flags.${MODULE_ID}`)) {
+      ui.notifications.warn("INDYVENTURES.SharedBastion.NoManagePermission", { localize: true });
+      return false;
+    }
+    sanitizeFacilityVenturePermissionsPatch(change, item);
     sanitizeConfigPatchForUpdate(item, change);
     sanitizeStatePatchForUpdate(item, change);
+    return enforceSharedFacilityUpdateLimit(item, change);
   });
+  Hooks.on("renderApplicationV2", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("renderActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("renderActorSheet5e", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("renderCharacterActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("dnd5e.renderActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("renderItemSheet", (sheet, html) => bindFacilityEditorControls(sheet, html));
   Hooks.on("renderItemSheet5e", (sheet, html) => bindFacilityEditorControls(sheet, html));
   Hooks.on("dnd5e.renderItemSheet", (sheet, html) => bindFacilityEditorControls(sheet, html));
@@ -1348,6 +1597,7 @@ export function registerFacilitySheetHooks() {
 
     if (partId === "bastion") {
       if (sheet?.document?.documentName !== "Actor" || sheet.document.type !== "character") return;
+      splitSharedBastionFacilityContext(sheet, context);
       if (!game.settings.get(MODULE_ID, SETTINGS.hideVentureHirelings)) return;
       const facilities = context.itemCategories?.facilities ?? [];
       for (const facility of facilities) {
@@ -1362,7 +1612,12 @@ export function registerFacilitySheetHooks() {
 }
 
 export function registerModuleTemplates() {
-  return loadTemplates([TEMPLATE_PATHS.facilityDetails, TEMPLATE_PATHS.chatSummary, TEMPLATE_PATHS.boonEditor]);
+  return loadTemplates([
+    TEMPLATE_PATHS.facilityDetails,
+    TEMPLATE_PATHS.chatSummary,
+    TEMPLATE_PATHS.boonEditor,
+    TEMPLATE_PATHS.sharedBastionConfig
+  ]);
 }
 
 export function registerModuleApi() {
@@ -1376,6 +1631,10 @@ export function registerModuleApi() {
       await facility.update({
         [`flags.${MODULE_ID}.state`]: null
       });
+    },
+    sharedBastion: {
+      isSharedBastionActor,
+      canManageFacilityVenture
     }
   };
 }

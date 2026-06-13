@@ -1,0 +1,132 @@
+<form class="indy-shared-bastion-form" data-indy-shared-bastion-form>
+  <p class="hint">{{ localize "INDYVENTURES.SharedBastion.Help" }}</p>
+
+  <fieldset class="card">
+    <legend>{{ localize "INDYVENTURES.SharedBastion.Basics" }}</legend>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.Enabled" }}</label>
+      <div class="form-fields">
+        <input type="checkbox" name="enabled" {{ checked config.enabled }}>
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.EnabledHint" }}</p>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.Actor" }}</label>
+      <div class="form-fields">
+        <select name="actorUuid">
+          {{ selectOptions actorOptions selected=config.actorUuid localize=false }}
+        </select>
+        {{#if actor}}
+          <button type="button" data-action="openActor">
+            <i class="fas fa-up-right-from-square" inert></i>
+            {{ localize "INDYVENTURES.SharedBastion.OpenActor" }}
+          </button>
+        {{/if}}
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.ActorHint" }}</p>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.DefaultPermission" }}</label>
+      <div class="form-fields">
+        <select name="defaultPermission">
+          {{ selectOptions permissionOptions selected=config.defaultPermission localize=false }}
+        </select>
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.DefaultPermissionHint" }}</p>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.SyncActorOwnership" }}</label>
+      <div class="form-fields">
+        <input type="checkbox" name="syncActorOwnership" {{ checked config.syncActorOwnership }}>
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.SyncActorOwnershipHint" }}</p>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.LimitGlobalAdvance" }}</label>
+      <div class="form-fields">
+        <input type="checkbox" name="limitGlobalAdvance" {{ checked config.limitGlobalAdvance }}>
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.LimitGlobalAdvanceHint" }}</p>
+    </div>
+  </fieldset>
+
+  <fieldset class="card">
+    <legend>{{ localize "INDYVENTURES.SharedBastion.FacilitySlots" }}</legend>
+    <p class="hint">{{ localize "INDYVENTURES.SharedBastion.FacilitySlotsHint" }}</p>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.FacilitySlotsEnabled" }}</label>
+      <div class="form-fields">
+        <input type="checkbox" name="facilitySlots.enabled" {{ checked config.facilitySlots.enabled }}>
+      </div>
+      <p class="hint">{{ localize "INDYVENTURES.SharedBastion.FacilitySlotsEnabledHint" }}</p>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.NormalSpecialFacilitySlots" }}</label>
+      <div class="form-fields">
+        <input type="text" name="facilitySlots.normalSpecial" value="{{ config.facilitySlots.normalSpecial }}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>{{ localize "INDYVENTURES.SharedBastion.IndyVentureFacilitySlots" }}</label>
+      <div class="form-fields">
+        <input type="text" name="facilitySlots.ventureSpecial" value="{{ config.facilitySlots.ventureSpecial }}">
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="card">
+    <legend>{{ localize "INDYVENTURES.SharedBastion.UserPermissions" }}</legend>
+    <p class="hint">{{ localize "INDYVENTURES.SharedBastion.UserPermissionsHint" }}</p>
+
+    <table class="indy-shared-bastion-users">
+      <thead>
+        <tr>
+          <th>{{ localize "INDYVENTURES.SharedBastion.User" }}</th>
+          <th>{{ localize "INDYVENTURES.SharedBastion.PermissionColumn" }}</th>
+          <th>{{ localize "INDYVENTURES.SharedBastion.Effective" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each users}}
+          <tr>
+            <td>
+              {{ name }}
+              {{#unless active}}
+                <span class="hint">({{ localize "INDYVENTURES.SharedBastion.Inactive" }})</span>
+              {{/unless}}
+            </td>
+            <td>
+              <select name="user.{{ id }}">
+                {{ selectOptions ../userPermissionOptions selected=override localize=false }}
+              </select>
+            </td>
+            <td>{{ effectiveLabel }}</td>
+          </tr>
+        {{else}}
+          <tr>
+            <td colspan="3" class="hint">{{ localize "INDYVENTURES.SharedBastion.NoPlayers" }}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </fieldset>
+
+  <footer class="form-footer">
+    <button type="button" data-action="save">
+      <i class="fas fa-save" inert></i>
+      {{ localize "Save Changes" }}
+    </button>
+    <button type="button" data-action="cancel">
+      <i class="fas fa-times" inert></i>
+      {{ localize "Cancel" }}
+    </button>
+  </footer>
+</form>

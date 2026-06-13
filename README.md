@@ -14,15 +14,15 @@ The module integrates the idea of Ventures from https://blackcitadelrpg.com/run
 - Venture state tracking: current profit die, success streak, venture treasury, and failed state.
 - Boon system with per-boon per-turn limits, boons that are only active while making profit/loss, reward UUID (items and effects) support, and group turn limits.
 - Active-effect driven venture modifiers (profit/loss die behavior, success threshold override, profit bonus, duration).
-- Venture summary chat cards with boon purchase buttons and treasury claim actions.
+- Venture summary chat cards with collapsible venture sections, boon purchase buttons, and treasury claim actions.
 - Compendiums grouped under **Indy Ventures**:
   - `Venture Facilities`
   - `Venture Macros`
 
 ## Requirements
 
-- Foundry VTT: `13.x`
-- System: `dnd5e` `5.2.5+`
+- Foundry VTT: `13.x` or `14.x`
+- System: `dnd5e` `5.3.0+`
 
 ## Module Settings
 
@@ -32,6 +32,27 @@ The module integrates the idea of Ventures from https://blackcitadelrpg.com/run
 - `Enable Debug Logging`: writes detailed logs to browser console.
 - `Coverage Prompt Timeout (seconds)`: owner response timeout for deficit coverage prompts (default `180`).
 - `Roll Prompt Timeout (seconds)`: timeout for delegated owner profit/loss roll prompts before GM fallback (default `180`).
+- `Shared Bastion`: choose a shared character actor, set default and per-player venture permissions, and optionally sync those permissions to Foundry actor ownership.
+
+## Shared Bastion
+
+The shared bastion feature uses one real character actor as the shared bastion. Configure it from **Configure Settings -> Module Settings -> Indy Ventures -> Shared Bastion**.
+
+- `None`: no shared venture access.
+- `Limited` / `Observer`: can view shared venture summaries.
+- `Owner`: can purchase boons, claim venture treasury, answer delegated venture prompts, and manage standard D&D bastion controls when ownership sync is enabled.
+
+When **Sync Actor Ownership** is enabled, the module updates the shared actor's Foundry ownership to match the venture permissions. This is required for players to use D&D's built-in bastion controls because embedded facilities inherit actor ownership.
+
+When a player opens a character sheet, the normal D&D **Bastion** tab opens the configured shared bastion instead of that character's personal bastion. The module does not add a separate shared bastion button to character sheets.
+
+GM users can also set per-venture permissions on each venture-enabled facility. A player's effective venture permission is the lower of their shared bastion permission and that facility's override/default, so you can give several players Owner access to the shared bastion while limiting each venture to a smaller subset.
+
+For shared bastions, Indy Ventures chat actions that mutate state, such as purchasing boons and claiming treasury, are delegated to the primary active GM over the module socket. The GM client re-checks the requester's per-venture permission, serializes actions and bastion-turn venture processing with a per-facility lock, and recalculates current treasury/purchase limits before writing changes.
+
+When **Advance Only Shared Bastion** is enabled, D&D's global **Advance Bastion Turn** button advances only the configured shared bastion actor instead of every character actor with facilities.
+
+Enable **Split Special Facility Slots** in the shared bastion configuration to give normal special facilities and Indy Venture facilities separate limits. Use comma-separated `level:slots` entries, for example normal specials `5:2, 9:4, 13:5, 17:6` and Indy Ventures `5:6`. Basic facilities are left to D&D5e's normal behavior: initial free basic facilities, then additional basic facilities can be built with time and money.
 
 ## Quick Start
 
@@ -108,14 +129,13 @@ These are consumed on bastion turns and can be used for temporary actor buffs gr
 
 ## Turn Resolution Behavior
 
-Each enabled venture on the actor is processed when a bastion turn is detected:
+Each enabled venture on the actor is processed when a bastion turn is detected. Roll prompts for prepared ventures are dispatched together where possible, then each venture is resolved with its own state lock.
 
-1. Prompt for profit roll.
-2. Prompt for loss roll.
-3. Convert points to GP using `Gold per Point`.
-4. Apply net to treasury (or deficit handling).
-5. Handle growth/degradation/failure.
-6. Decrement relevant effect durations.
+1. Prompt for profit and loss rolls.
+2. Convert points to GP using `Gold per Point`.
+3. Apply net to treasury (or deficit handling).
+4. Handle growth/degradation/failure.
+5. Decrement relevant effect durations.
 
 When the GM is processing the bastion turn, roll prompts are delegated to a connected actor owner when available; otherwise the GM is prompted.
 
@@ -137,11 +157,12 @@ Growth/degradation specifics:
 
 Summary cards support:
 
+- Expanding/collapsing the overall results card and each venture result section.
 - Buying boons directly from chat.
 - Claiming treasury to character (prompts for claim amount).
 - Reward links (open linked Item/Effect sheet).
 
-Cards also show net result styling, profit die changes, and applied venture modifier effects with remaining turns.
+Cards also show net result styling, profit die changes, and applied venture modifier effects with remaining turns. For shared bastions, venture sections that the current viewer cannot manage start collapsed, while ventures they can manage start expanded.
 
 ## Compendium and Macro Workflow
 

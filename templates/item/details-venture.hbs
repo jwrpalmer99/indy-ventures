@@ -17,6 +17,41 @@
     </div>
   </div>
 
+  {{#if indyVentures.permissions}}
+  <div class="form-group stacked indy-venture-permissions">
+    <label>{{ localize "INDYVENTURES.Sheet.VenturePermissions" }}</label>
+    <div class="form-fields">
+      <p class="hint">{{ localize "INDYVENTURES.Sheet.VenturePermissionsHint" }}</p>
+      <div class="indy-venture-permissions-default">
+        <label>{{ localize "INDYVENTURES.Sheet.VentureDefaultPermission" }}</label>
+        <select name="flags.indy-ventures.permissions.defaultPermission">
+          {{ selectOptions indyVentures.permissions.permissionOptions selected=indyVentures.permissions.config.defaultPermission localize=false }}
+        </select>
+      </div>
+      <div class="indy-venture-permissions-list">
+        {{#each indyVentures.permissions.users}}
+          <div class="indy-venture-permission-row">
+            <div class="indy-venture-permission-user">
+              <strong>{{ name }}</strong>
+              <span>
+                {{ localize "INDYVENTURES.Sheet.VenturePermissionBastion" }}: {{ sharedPermissionLabel }}
+                ·
+                {{ localize "INDYVENTURES.Sheet.VenturePermissionEffective" }}: {{ effectiveLabel }}
+              </span>
+            </div>
+            <label class="indy-venture-permission-select">
+              <span>{{ localize "INDYVENTURES.Sheet.VenturePermissionOverride" }}</span>
+              <select name="flags.indy-ventures.permissions.users.{{ id }}">
+                {{ selectOptions @root.indyVentures.permissions.userPermissionOptions selected=override localize=false }}
+              </select>
+            </label>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+  </div>
+  {{/if}}
+
   <div class="form-group">
     <label>{{ localize "INDYVENTURES.Sheet.ProfitDie" }}</label>
     <div class="form-fields">
