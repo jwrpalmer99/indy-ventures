@@ -908,6 +908,207 @@
   line-height: 1;
 }
 
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet:not(.minimized, .minimizing, .maximizing) {
+  min-width: 720px;
+  min-height: 560px;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .window-content {
+  margin-block-start: 0;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .window-content::before,
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .sheet-header,
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet nav.tabs,
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .create-child {
+  display: none !important;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .sheet-body .main-content {
+  grid-template-columns: minmax(0, 1fr);
+  padding-inline-end: 8px;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .sheet-body .sidebar {
+  display: none !important;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .tab-body {
+  padding: 0.75rem;
+}
+
+.dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .tab[data-tab="bastion"] {
+  display: flex;
+  min-height: 100%;
+}
+
+.tidy5e-sheet .tidy-tabs .indy-shared-bastion-tidy-tab {
+  align-items: center;
+  cursor: pointer;
+}
+
+.tidy5e-sheet .tidy-tabs .indy-shared-bastion-tidy-tab .tab-icon {
+  line-height: 1;
+}
+
+.tidy5e-sheet .facility-panels:has(.indy-venture-facilities-tidy) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-areas:
+    "special basic"
+    "venture basic" !important;
+  align-items: start;
+}
+
+.tidy5e-sheet .facility-panels:has(.indy-venture-facilities-tidy) > .facilities.special:not(.indy-venture-facilities-tidy) {
+  grid-area: special;
+}
+
+.tidy5e-sheet .facility-panels:has(.indy-venture-facilities-tidy) > .facilities.basic {
+  grid-area: basic;
+}
+
+.tidy5e-sheet .facility-panels:has(.indy-venture-facilities-tidy) > .indy-venture-facilities-tidy {
+  grid-area: venture;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-tabs [data-tab-id]:not([data-tab-id="bastion"]),
+.tidy5e-sheet.indy-shared-bastion-sheet [role="tablist"] [data-tab-id]:not([data-tab-id="bastion"]),
+.indy-tidy-shared-bastion-sheet .tidy-tabs [data-tab-id]:not([data-tab-id="bastion"]),
+.indy-tidy-shared-bastion-sheet [role="tablist"] [data-tab-id]:not([data-tab-id="bastion"]) {
+  display: none !important;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tab-contents-for]:not([data-tab-contents-for="bastion"]),
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-tab:not(.bastion),
+.indy-tidy-shared-bastion-sheet [data-tab-contents-for]:not([data-tab-contents-for="bastion"]),
+.indy-tidy-shared-bastion-sheet .tidy-tab:not(.bastion) {
+  display: none !important;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tab-contents-for="bastion"],
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-tab.bastion,
+.indy-tidy-shared-bastion-sheet [data-tab-contents-for="bastion"],
+.indy-tidy-shared-bastion-sheet .tidy-tab.bastion {
+  display: block !important;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .sheet-header,
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tidy-sheet-part="header"],
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-sheet-header,
+.tidy5e-sheet.indy-shared-bastion-sheet .sidebar-container,
+.tidy5e-sheet.indy-shared-bastion-sheet .sidebar-header,
+.tidy5e-sheet.indy-shared-bastion-sheet aside.sidebar,
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tidy-sheet-part="sidebar"],
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tidy-sheet-part="sidebar-header"],
+.tidy5e-sheet.indy-shared-bastion-sheet .favorites,
+.tidy5e-sheet.indy-shared-bastion-sheet .traits,
+.indy-tidy-shared-bastion-sheet .sheet-header,
+.indy-tidy-shared-bastion-sheet [data-tidy-sheet-part="header"],
+.indy-tidy-shared-bastion-sheet .tidy-sheet-header,
+.indy-tidy-shared-bastion-sheet .sidebar-container,
+.indy-tidy-shared-bastion-sheet .sidebar-header,
+.indy-tidy-shared-bastion-sheet aside.sidebar,
+.indy-tidy-shared-bastion-sheet [data-tidy-sheet-part="sidebar"],
+.indy-tidy-shared-bastion-sheet [data-tidy-sheet-part="sidebar-header"],
+.indy-tidy-shared-bastion-sheet .favorites,
+.indy-tidy-shared-bastion-sheet .traits {
+  display: none !important;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-sheet-body,
+.indy-tidy-shared-bastion-sheet .tidy-sheet-body {
+  display: block !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-height: 0;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .sheet-body,
+.tidy5e-sheet.indy-shared-bastion-sheet .sheet-body .main-content,
+.indy-tidy-shared-bastion-sheet .sheet-body,
+.indy-tidy-shared-bastion-sheet .sheet-body .main-content {
+  display: block !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-width: 0;
+  width: 100%;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .tab-right-column,
+.tidy5e-sheet.indy-shared-bastion-sheet .tab-content,
+.indy-tidy-shared-bastion-sheet .tab-right-column,
+.indy-tidy-shared-bastion-sheet .tab-content {
+  display: block !important;
+  grid-column: 1 / -1 !important;
+  margin-inline-start: 0 !important;
+  margin-left: 0 !important;
+  max-width: none !important;
+  min-width: 0;
+  width: 100% !important;
+}
+
+.tidy5e-sheet.indy-shared-bastion-sheet .bastion-container,
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tab-contents-for="bastion"],
+.tidy5e-sheet.indy-shared-bastion-sheet .tidy-tab.bastion,
+.tidy5e-sheet.indy-shared-bastion-sheet [data-tidy-sheet-part="tab-content"],
+.indy-tidy-shared-bastion-sheet .bastion-container,
+.indy-tidy-shared-bastion-sheet [data-tab-contents-for="bastion"],
+.indy-tidy-shared-bastion-sheet .tidy-tab.bastion,
+.indy-tidy-shared-bastion-sheet [data-tidy-sheet-part="tab-content"] {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+}
+
+.tidy5e-sheet .facility-panels:has(.indy-venture-facilities-tidy),
+.tidy5e-sheet .facilities-container:has(.indy-venture-facilities-tidy),
+.tidy5e-sheet .bastion-facilities:has(.indy-venture-facilities-tidy) {
+  align-items: start;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy {
+  min-width: 0;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .bastion-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .indy-venture-facilities-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .counter {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .facility-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .facility.empty [data-indy-venture-slot] {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+}
+
+.tidy5e-sheet .indy-venture-facilities-tidy .facility.empty [data-indy-venture-slot] i {
+  flex: 0 0 auto;
+}
+
 .indy-shared-bastion-config .indy-shared-bastion-form {
   display: grid;
   gap: 0.65rem;

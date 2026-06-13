@@ -11,6 +11,7 @@ The module works inside the existing D&D5e bastion experience. You still build a
 - Foundry VTT: `13.x` or `14.x`
 - System: `dnd5e` `5.3.0+`
 - D&D5e bastions must be enabled in the D&D5e system settings.
+- Optional: compatible with `tidy5e-sheet` character sheets.
 
 ## What It Adds
 
@@ -21,6 +22,7 @@ The module works inside the existing D&D5e bastion experience. You still build a
 - Example venture facilities in the **Indy Ventures** compendium folder.
 - Optional shared bastion support for parties that manage one bastion together.
 - Optional separate slot limits for normal special facilities and Indy Venture facilities.
+- A dedicated **Shared Bastion Sheet** for shared bastion actors.
 
 ## GM Setup
 
@@ -72,6 +74,10 @@ Configure it from **Configure Settings -> Module Settings -> Indy Ventures -> Sh
 5. Turn on **Advance Only Shared Bastion** if the D&D5e advance button should advance only the shared bastion.
 
 When shared bastion mode is enabled, the normal **Bastion** tab on a player character opens the shared bastion. The module does not add a second shared-bastion button.
+
+The selected shared bastion actor uses the **Shared Bastion Sheet**. This sheet focuses on the bastion view and hides the normal character tabs, ability sections, level details, inventory, and other character-sheet areas that are not needed for a party bastion. The GM does not normally need to select it manually; the module assigns it to the shared bastion actor when shared bastion settings are saved.
+
+`tidy5e-sheet` is optional. If you use it, the module keeps the same shared bastion behavior on Tidy character sheets. The player character's existing Bastion tab opens the shared bastion, the shared bastion sheet can use Tidy's bastion controls when Tidy is the configured sheet/default, and split normal/Indy Venture facility slots are shown in the bastion view.
 
 ### Shared Permissions
 
@@ -135,6 +141,8 @@ If a deficit is not covered, the venture can degrade or fail depending on its co
 ## Troubleshooting
 
 - **I do not see the Bastion tab**: confirm D&D5e bastions are enabled and the actor is eligible for bastion features.
+- **The shared bastion opens like a normal character sheet**: open the shared bastion settings as GM and save them again. This reassigns the **Shared Bastion Sheet** to the configured shared bastion actor.
+- **Tidy sheets show facility slots in the wrong place**: reload Foundry after updating the module so the latest Tidy compatibility styles are active.
 - **Players cannot use normal bastion controls**: in shared bastion settings, enable **Sync Actor Ownership** and give those players Owner access.
 - **A player can manage the bastion but not a venture**: check the individual venture facility permissions.
 - **Boon buttons are disabled**: check the boon cost, purchase window, and per-turn or group limits.

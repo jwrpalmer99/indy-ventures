@@ -16,8 +16,11 @@ import {
 } from "./shared-bastion.js";
 
 const BOON_TEXTAREA_SELECTOR = `textarea[name="flags.${MODULE_ID}.config.boonsText"]`;
+const TIDY_MODULE_ID = "tidy5e-sheet";
+const TIDY_ITEM_DETAILS_SELECTOR = '[data-tab-contents-for="details"], [data-tab="details"].tab-content, [data-tab="details"] .tab-content';
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const bastionContextBySheet = new WeakMap();
+let tidyIntegrationRegistered = false;
 
 function resolveHtmlRoot(sheet, html) {
   if (html instanceof HTMLElement) return html;
@@ -1459,6 +1462,38 @@ function createSpecialFacilityEmptySlot(doc, { venture = false } = {}) {
   return empty;
 }
 
+function createTidySpecialFacilityEmptySlot(doc, { venture = false } = {}) {
+  const empty = doc.createElement("li");
+  empty.classList.add("facility", "empty");
+  empty.dataset.action = "findItem";
+  empty.dataset.itemType = "facility";
+  empty.dataset.facilityType = "special";
+  if (venture) {
+    empty.dataset.indyVentureSlot = "1";
+    empty.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureAvailableHint");
+  }
+
+  const button = doc.createElement("a");
+  button.classList.add("button", "button-tertiary", "highlight-on-hover");
+  button.setAttribute("role", "button");
+  button.setAttribute("tabindex", "0");
+  button.dataset.action = "findItem";
+  button.dataset.itemType = "facility";
+  button.dataset.facilityType = "special";
+  if (venture) {
+    button.dataset.indyVentureSlot = "1";
+    button.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureAvailableHint");
+  }
+
+  const icon = doc.createElement("i");
+  icon.classList.add("fas", venture ? "fa-coins" : "fa-building-columns");
+  button.append(icon, ` ${game.i18n.localize(venture
+    ? "INDYVENTURES.SharedBastion.IndyVentureAvailableSlot"
+    : "DND5E.FACILITY.AvailableFacility.special.free")}`);
+  empty.append(button);
+  return empty;
+}
+
 function createVentureFacilitiesSection(doc, { chosen = [], value = 0, max = 0, available = 0 } = {}) {
   const section = doc.createElement("section");
   section.classList.add("facilities", "indy-venture-facilities");
@@ -1485,6 +1520,56 @@ function createVentureFacilitiesSection(doc, { chosen = [], value = 0, max = 0, 
   return section;
 }
 
+function createTidyVentureFacilitiesSection(doc, { chosen = [], value = 0, max = 0, available = 0 } = {}) {
+  const section = doc.createElement("section");
+  section.classList.add("facilities", "indy-venture-facilities", "indy-venture-facilities-tidy");
+
+  const header = doc.createElement("div");
+  header.classList.add("bastion-header");
+
+  const heading = doc.createElement("h3");
+  heading.classList.add("font-title-small");
+  const icon = doc.createElement("i");
+  icon.classList.add("fas", "fa-coins");
+  const title = doc.createElement("span");
+  title.classList.add("indy-venture-facilities-title");
+  title.textContent = game.i18n.localize("INDYVENTURES.SharedBastion.IndyVentureFacilities");
+  const counter = doc.createElement("span");
+  counter.classList.add("counter");
+  counter.innerHTML = `<span>${value}</span> <span class="divider color-text-gold font-default-medium">/</span> <span class="max color-text-default font-label-medium">${max}</span>`;
+  heading.append(icon, " ", title, " ", counter);
+  header.append(heading);
+  const underline = doc.createElement("tidy-gold-header-underline");
+  header.append(underline);
+
+  const list = doc.createElement("ul");
+  list.classList.add("facility-list", "unlist");
+  for (const entry of chosen) list.append(entry);
+  for (let i = 0; i < available; i += 1) list.append(createTidySpecialFacilityEmptySlot(doc, { venture: true }));
+
+  section.append(header, list);
+  return section;
+}
+
+function setFacilityCounter(section, value, max) {
+  const counter = section?.querySelector?.("h3 .counter");
+  if (!counter) return;
+  const valueNode = counter.querySelector(".value") ?? counter.querySelector("span:first-child");
+  const maxNode = counter.querySelector(".max") ?? counter.querySelector("span:last-child");
+  if (valueNode && maxNode) {
+    valueNode.textContent = String(value);
+    maxNode.textContent = String(max);
+    return;
+  }
+  counter.textContent = `${value} / ${max}`;
+}
+
+function isTidySheetRoot(root) {
+  return Boolean(root?.classList?.contains(TIDY_MODULE_ID)
+    || root?.closest?.(`.${TIDY_MODULE_ID}`)
+    || root?.querySelector?.("[data-tidy-sheet-part], tidy-gold-header-underline"));
+}
+
 function renderSharedBastionFacilityBuckets(sheet, html) {
   const actor = sheet?.document ?? sheet?.actor;
   if (!isSharedBastionActor(actor)) return;
@@ -1497,6 +1582,7 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
   if (!special) return;
   const specialList = special.querySelector("ul");
   if (!specialList) return;
+  const tidy = isTidySheetRoot(root);
 
   const previousVentureSection = root.querySelector(".indy-venture-facilities");
   if (previousVentureSection) {
@@ -1514,7 +1600,10 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
     else normalElements.push(element);
   }
 
-  for (const empty of specialList.querySelectorAll("li.facility.empty[data-facility-type='special']")) {
+  const emptySelector = tidy
+    ? "li.facility.empty, div.facility.empty"
+    : "li.facility.empty[data-facility-type='special']";
+  for (const empty of specialList.querySelectorAll(emptySelector)) {
     empty.remove();
   }
   for (const element of ventureElements) element.remove();
@@ -1531,19 +1620,99 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
   const normalAvailable = Math.max(0, limits.normalSpecial - normalValue);
   const ventureAvailable = Math.max(0, limits.ventureSpecial - ventureValue);
   for (let i = 0; i < normalAvailable; i += 1) {
-    specialList.append(createSpecialFacilityEmptySlot(root.ownerDocument));
+    specialList.append(tidy
+      ? createTidySpecialFacilityEmptySlot(root.ownerDocument)
+      : createSpecialFacilityEmptySlot(root.ownerDocument));
   }
 
-  const specialCounter = special.querySelector("h3 .counter");
-  if (specialCounter) specialCounter.textContent = `${normalValue} / ${limits.normalSpecial}`;
+  setFacilityCounter(special, normalValue, limits.normalSpecial);
 
-  const section = createVentureFacilitiesSection(root.ownerDocument, {
+  const sectionFactory = tidy ? createTidyVentureFacilitiesSection : createVentureFacilitiesSection;
+  const section = sectionFactory(root.ownerDocument, {
     chosen: ventureElements,
     value: ventureValue,
     max: limits.ventureSpecial,
     available: ventureAvailable
   });
   special.after(section);
+}
+
+function handleTidyAddFacilityClicked(event, actor, type) {
+  if (type !== "special") return true;
+  const target = event?.target?.closest?.("[data-indy-venture-slot]");
+  if (!target) return true;
+  if (!isSharedBastionActor(actor)) return true;
+  event.preventDefault();
+  event.stopPropagation();
+  openVentureFacilityBrowser(actor, event);
+  return false;
+}
+
+async function openVentureFacilityBrowser(actor, event) {
+  if (!actor) return;
+  if (!canAddSharedSpecialFacility(actor, "venture")) return;
+
+  const filters = {
+    locked: {
+      types: new Set(["facility"]),
+      additional: {
+        type: {
+          special: 1,
+          basic: -1
+        },
+        level: { max: actor.system?.details?.level ?? 0 }
+      }
+    }
+  };
+  const detachOptions = actor.sheet?._detachOptions?.() ?? {};
+  const result = await dnd5e.applications.CompendiumBrowser.selectOne({ filters }, detachOptions);
+  if (!result) return;
+  const sourceUuid = typeof result === "string" ? result : result.uuid;
+  const source = result?.documentName ? result : await fromUuid(sourceUuid);
+  if (!source) return;
+  const itemData = game.items?.fromCompendium
+    ? game.items.fromCompendium(source, { keepId: true })
+    : source.toObject();
+  delete itemData._id;
+  foundry.utils.setProperty(itemData, `flags.${MODULE_ID}.config.enabled`, true);
+  if (actor.sheet?._onDropItemCreate) {
+    return actor.sheet._onDropItemCreate(itemData, event, "copy");
+  }
+  return actor.createEmbeddedDocuments("Item", [itemData], {
+    renderSheet: true,
+    fromCompendium: source.uuid
+  });
+}
+
+function isTidyFacilityItemSheetContext(context) {
+  const item = context?.item ?? context?.document ?? context?.source ?? null;
+  return item?.documentName === "Item" && item.type === "facility";
+}
+
+function getTidyFacilityContentData(context) {
+  const item = context?.item ?? context?.document ?? context?.source ?? null;
+  return {
+    ...context,
+    indyVentures: prepareFacilitySheetContext(item)
+  };
+}
+
+function registerTidyIntegration(api) {
+  if (tidyIntegrationRegistered || !api?.models?.HandlebarsContent || !api.registerItemContent) return;
+  tidyIntegrationRegistered = true;
+
+  api.registerItemContent(new api.models.HandlebarsContent({
+    path: TEMPLATE_PATHS.facilityDetails,
+    enabled: isTidyFacilityItemSheetContext,
+    getData: getTidyFacilityContentData,
+    injectParams: {
+      selector: TIDY_ITEM_DETAILS_SELECTOR,
+      position: "beforeend"
+    },
+    onRender: ({ app, element }) => {
+      bindFacilityEditorControls(app, element);
+    }
+  }), { types: ["facility"], layout: ["classic", "quadrone"] });
 }
 
 export function registerFacilitySheetHooks() {
@@ -1576,9 +1745,14 @@ export function registerFacilitySheetHooks() {
   Hooks.on("renderActorSheet5e", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("renderCharacterActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
   Hooks.on("dnd5e.renderActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("tidy5e-sheet.renderActorSheet", (sheet, html) => renderSharedBastionFacilityBuckets(sheet, html));
+  Hooks.on("tidy5e-sheet.addFacilityClicked", handleTidyAddFacilityClicked);
   Hooks.on("renderItemSheet", (sheet, html) => bindFacilityEditorControls(sheet, html));
   Hooks.on("renderItemSheet5e", (sheet, html) => bindFacilityEditorControls(sheet, html));
   Hooks.on("dnd5e.renderItemSheet", (sheet, html) => bindFacilityEditorControls(sheet, html));
+  Hooks.on("tidy5e-sheet.renderItemSheet", (sheet, html) => bindFacilityEditorControls(sheet, html));
+  Hooks.on("tidy5e-sheet.ready", registerTidyIntegration);
+  Hooks.once("ready", () => registerTidyIntegration(game.modules.get(TIDY_MODULE_ID)?.api));
   Hooks.on("renderActiveEffectConfig", (sheet, html) => bindActiveEffectModifierSummary(sheet, html));
   Hooks.on("dnd5e.renderActiveEffectConfig", (sheet, html) => bindActiveEffectModifierSummary(sheet, html));
   Hooks.on("renderDAEActiveEffectConfig", (sheet, html) => bindActiveEffectModifierSummary(sheet, html));

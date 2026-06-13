@@ -1,7 +1,7 @@
 import { MODULE_ID, SETTINGS, TEMPLATE_PATHS } from "./constants.js";
 import { moduleLog, moduleWarn } from "./logger.js";
 
-const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const { ApplicationV2, DocumentSheetV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 export const VENTURE_PERMISSION_NAMES = ["NONE", "LIMITED", "OBSERVER", "OWNER"];
 
@@ -26,8 +26,11 @@ export const DEFAULT_FACILITY_VENTURE_PERMISSIONS = {
 
 const patchedSheetClasses = new WeakSet();
 const facilityVentureLocks = new Map();
+const SHARED_BASTION_SHEET_CLASS_ID = `${MODULE_ID}.SharedBastionActorSheet`;
 let dndBastionAdvancePatched = false;
 let originalDndFacilityAdvancement = null;
+let sharedBastionActorSheetClass = null;
+let sharedBastionActorSheetRegistered = false;
 
 function getOwnershipLevels() {
   return CONST?.DOCUMENT_OWNERSHIP_LEVELS ?? {
@@ -593,8 +596,10 @@ export class SharedBastionConfigApplication extends HandlebarsApplicationMixin(A
 
     await game.settings.set(MODULE_ID, SETTINGS.sharedBastion, config);
     applySharedBastionFacilitySlots();
+    registerSharedBastionActorSheet();
     await syncSharedBastionActorOwnership();
     const actor = await getSharedBastionActor();
+    await ensureSharedBastionActorSheet(actor);
     patchSharedBastionSheetTabs(actor);
     if (actor?.sheet?.rendered) {
       if (actor.sheet?.tabGroups) actor.sheet.tabGroups.primary = "bastion";
@@ -619,6 +624,7 @@ export class SharedBastionConfigApplication extends HandlebarsApplicationMixin(A
       return;
     }
     patchSharedBastionSheetTabs(actor);
+    await ensureSharedBastionActorSheet(actor);
     if (actor.sheet?.tabGroups) actor.sheet.tabGroups.primary = "bastion";
     try {
       return actor.sheet?.render?.({ force: true });
@@ -676,6 +682,7 @@ function patchSharedBastionSheetTabs(actor = null) {
     const sharedActor = getSharedBastionActorSync();
     const forceBastionTab = Boolean(actor?.type === "character")
       && Boolean(game.settings.get("dnd5e", "bastionConfiguration")?.enabled)
+      && hasActorBastionLevel(actor)
       && (
         isSharedBastionActor(actor)
         || (
@@ -692,21 +699,220 @@ function patchSharedBastionSheetTabs(actor = null) {
   };
 }
 
+function getCharacterSheetClassConfig() {
+  const sheetConfig = foundry.applications?.apps?.DocumentSheetConfig;
+  const classes = CONFIG?.Actor?.sheetClasses?.character ?? {};
+  const { defaultClass } = sheetConfig?.getSheetClassesForSubType?.("Actor", "character") ?? {};
+  const configured = defaultClass && defaultClass !== SHARED_BASTION_SHEET_CLASS_ID ? defaultClass : "";
+  return {
+    classes,
+    defaultClass: configured,
+    baseClass: classes[configured]?.cls ?? DocumentSheetV2
+  };
+}
+
+function createSharedBastionActorSheetClass(BaseSheetClass) {
+  class SharedBastionActorSheet extends BaseSheetClass {
+    constructor(options = {}) {
+      super(options);
+      this.tabGroups = { ...(this.tabGroups ?? {}), primary: "bastion" };
+    }
+
+    _configureRenderOptions(options) {
+      super._configureRenderOptions?.(options);
+      if (isSharedBastionActor(this.document ?? this.actor)) {
+        this.tabGroups.primary = "bastion";
+      }
+    }
+
+    _configureRenderParts(options) {
+      const parts = super._configureRenderParts?.(options) ?? {};
+      if (!isSharedBastionActor(this.document ?? this.actor)) return parts;
+      if (!Object.prototype.hasOwnProperty.call(parts, "bastion")) return parts;
+
+      for (const partId of Object.keys(parts)) {
+        if (!["bastion"].includes(partId)) delete parts[partId];
+      }
+      return parts;
+    }
+
+    async _prepareContext(options) {
+      const context = await super._prepareContext(options);
+      if (!isSharedBastionActor(this.document ?? this.actor)) return context;
+
+      this.tabGroups.primary = "bastion";
+      context.indySharedBastionSheet = true;
+      if (context.tabs && !Array.isArray(context.tabs)) {
+        const bastion = context.tabs.bastion ?? {
+          id: "bastion",
+          group: "primary",
+          icon: "fas fa-chess-rook",
+          label: "DND5E.Bastion.Label"
+        };
+        context.tabs = {
+          bastion: {
+            ...bastion,
+            active: true,
+            cssClass: "active"
+          }
+        };
+      }
+      return context;
+    }
+
+    _getTabs() {
+      const tabs = super._getTabs?.() ?? {};
+      if (!isSharedBastionActor(this.document ?? this.actor)) return tabs;
+
+      const bastion = tabs.bastion ?? {
+        id: "bastion",
+        group: "primary",
+        icon: "fas fa-chess-rook",
+        label: "DND5E.Bastion.Label"
+      };
+      return {
+        bastion: {
+          ...bastion,
+          active: true,
+          cssClass: "active"
+        }
+      };
+    }
+
+    async _onRender(context, options) {
+      await super._onRender?.(context, options);
+      markSharedBastionOnlySheet(this, this.element);
+    }
+  }
+
+  const defaultOptions = foundry.utils.mergeObject(BaseSheetClass.DEFAULT_OPTIONS ?? {}, {
+    position: {
+      width: 900,
+      height: 900
+    }
+  }, {
+    inplace: false,
+    recursive: true,
+    insertKeys: true
+  });
+  defaultOptions.classes = Array.from(new Set([
+    ...(BaseSheetClass.DEFAULT_OPTIONS?.classes ?? []),
+    "indy-shared-bastion-sheet"
+  ]));
+  SharedBastionActorSheet.DEFAULT_OPTIONS = defaultOptions;
+
+  return SharedBastionActorSheet;
+}
+
+function registerSharedBastionActorSheet() {
+  const sheetConfig = foundry.applications?.apps?.DocumentSheetConfig;
+  if (!sheetConfig?.registerSheet || !CONFIG?.Actor?.sheetClasses) return null;
+
+  const { baseClass } = getCharacterSheetClassConfig();
+  if (!baseClass) return null;
+
+  if (!sharedBastionActorSheetClass || Object.getPrototypeOf(sharedBastionActorSheetClass) !== baseClass) {
+    sharedBastionActorSheetClass = createSharedBastionActorSheetClass(baseClass);
+  }
+
+  sheetConfig.registerSheet(Actor, MODULE_ID, sharedBastionActorSheetClass, {
+    types: ["character"],
+    label: "INDYVENTURES.SharedBastion.SheetClass",
+    makeDefault: false,
+    canBeDefault: false,
+    canConfigure: true
+  });
+  sharedBastionActorSheetRegistered = true;
+  return sharedBastionActorSheetClass;
+}
+
+async function ensureSharedBastionActorSheet(actor = null) {
+  if (!game.user?.isGM) return;
+  if (!sharedBastionActorSheetRegistered) registerSharedBastionActorSheet();
+
+  const sharedActor = actor ?? await getSharedBastionActor();
+  if (!sharedActor || !isSharedBastionActor(sharedActor)) return;
+
+  const current = sharedActor.getFlag("core", "sheetClass") ?? "";
+  if (current === SHARED_BASTION_SHEET_CLASS_ID) return;
+
+  moduleLog("Assigning shared bastion actor sheet", {
+    actor: sharedActor.name,
+    actorUuid: sharedActor.uuid,
+    sheetClass: SHARED_BASTION_SHEET_CLASS_ID
+  });
+  await sharedActor.setFlag("core", "sheetClass", SHARED_BASTION_SHEET_CLASS_ID);
+}
+
+function getBastionMinimumLevel() {
+  const advancement = CONFIG?.DND5E?.facilities?.advancement ?? {};
+  const levels = [
+    ...Object.keys(advancement.basic ?? {}),
+    ...Object.keys(advancement.special ?? {})
+  ]
+    .map(level => Number(level))
+    .filter(level => Number.isInteger(level) && level > 0);
+  return levels.length ? Math.min(...levels) : 5;
+}
+
+function hasActorBastionLevel(actor) {
+  const level = Number(actor?.system?.details?.level ?? 0);
+  return level >= getBastionMinimumLevel();
+}
+
+function isTidySheetRoot(root) {
+  return Boolean(root?.classList?.contains("tidy5e-sheet")
+    || root?.closest?.(".tidy5e-sheet")
+    || root?.querySelector?.(".tidy-tabs"));
+}
+
+function markSharedBastionOnlySheet(sheet, html) {
+  const actor = sheet?.document ?? sheet?.actor;
+  if (!isSharedBastionActor(actor)) return;
+  if (actor.getFlag?.("core", "sheetClass") !== SHARED_BASTION_SHEET_CLASS_ID) return;
+
+  const root = resolveHtmlRoot(sheet, html);
+  if (!root) return;
+  root.classList.add("indy-shared-bastion-sheet");
+  if (isTidySheetRoot(root)) {
+    root.classList.add("indy-tidy-shared-bastion-sheet");
+    root.querySelector(".tidy5e-sheet")?.classList.add("indy-tidy-shared-bastion-sheet");
+  }
+  if (sheet?.tabGroups) sheet.tabGroups.primary = "bastion";
+
+  for (const tab of root.querySelectorAll('[data-tab="bastion"], [data-tab-id="bastion"]')) {
+    tab.classList.add("active");
+    tab.setAttribute("aria-selected", "true");
+  }
+  for (const panel of root.querySelectorAll('.tab[data-tab="bastion"], .tidy-tab.bastion, [data-tab-contents-for="bastion"]')) {
+    panel.classList.add("active");
+    panel.removeAttribute("hidden");
+  }
+}
+
 function bindSharedBastionTab(sheet, html) {
   const actor = sheet?.document ?? sheet?.actor;
   if (!actor || actor.documentName !== "Actor" || actor.type !== "character") return;
   if (!getSharedBastionConfig().enabled) return;
+  if (!game.settings.get("dnd5e", "bastionConfiguration")?.enabled) return;
   if (isSharedBastionActor(actor)) return;
   if (!canViewActorVentures(getSharedBastionActorSync(), game.user, "LIMITED")) return;
 
   const root = resolveHtmlRoot(sheet, html);
   if (!root) return;
+  const tidy = isTidySheetRoot(root);
+  if (!hasActorBastionLevel(actor)) {
+    if (tidy) removeTidyBastionTabs(root);
+    return;
+  }
+  if (tidy) replaceTidySharedBastionTab(root);
 
-  for (const tab of root.querySelectorAll('[data-tab="bastion"]')) {
-    if (!tab.closest("nav, .tabs, [data-application-part='tabs']")) continue;
+  for (const tab of root.querySelectorAll('[data-tab="bastion"], [data-tab-id="bastion"]')) {
+    if (!tab.closest("nav, .tabs, [data-application-part='tabs'], [role='tablist']")) continue;
     if (tab.dataset.indySharedBastionTab === "1") continue;
     tab.dataset.indySharedBastionTab = "1";
     tab.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.OpenTooltip");
+    tab.title = game.i18n.localize("INDYVENTURES.SharedBastion.OpenTooltip");
     tab.addEventListener("click", event => {
       event.preventDefault();
       event.stopPropagation();
@@ -714,6 +920,55 @@ function bindSharedBastionTab(sheet, html) {
       openSharedBastionSheet();
     }, { capture: true });
   }
+}
+
+function createTidySharedBastionTab(doc, existing = null) {
+  const tab = doc.createElement("a");
+  const existingClasses = Array.from(existing?.classList ?? []);
+  tab.classList.add(...(existingClasses.length ? existingClasses : ["tab-option"]));
+  tab.classList.remove("active");
+  tab.classList.add("indy-shared-bastion-tidy-tab");
+  tab.dataset.tabId = "bastion";
+  tab.setAttribute("role", "tab");
+  tab.setAttribute("aria-selected", "false");
+  tab.setAttribute("tabindex", existing?.getAttribute("tabindex") ?? "-1");
+  tab.title = game.i18n.localize("INDYVENTURES.SharedBastion.OpenTooltip");
+  tab.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.OpenTooltip");
+
+  const icon = doc.createElement("i");
+  icon.classList.add("tab-icon", "fa-solid", "fa-house-turret");
+  const label = doc.createElement("span");
+  label.classList.add("tab-title");
+  label.textContent = game.i18n.localize("DND5E.Bastion.Label");
+  tab.append(icon, " ", label);
+  return tab;
+}
+
+function removeTidyBastionTabs(root) {
+  for (const tab of root.querySelectorAll('[data-tab-id="bastion"]')) {
+    tab.remove();
+  }
+}
+
+function replaceTidySharedBastionTab(root) {
+  const tabLists = Array.from(root.querySelectorAll('[role="tablist"], .tidy-tabs'));
+  const nav = tabLists.find(element => element.querySelector("[data-tab-id]"));
+  if (!nav) return;
+
+  const existingTabs = Array.from(nav.querySelectorAll('[data-tab-id="bastion"]'));
+  const existing = existingTabs.find(tab => !tab.classList.contains("indy-shared-bastion-tidy-tab")) ?? existingTabs[0] ?? null;
+  const tab = createTidySharedBastionTab(root.ownerDocument, existing);
+  if (existing) {
+    existing.replaceWith(tab);
+    for (const duplicate of existingTabs) {
+      if (duplicate !== existing && duplicate.isConnected) duplicate.remove();
+    }
+    return;
+  }
+
+  const anchor = nav.querySelector('[data-tab-id="features"], [data-tab-id="biography"], [data-tab-id="actions"]');
+  if (anchor?.after) anchor.after(tab);
+  else nav.append(tab);
 }
 
 function resolveHtmlRoot(sheet, html) {
@@ -736,6 +991,7 @@ export async function openSharedBastionSheet() {
   }
 
   patchSharedBastionSheetTabs(actor);
+  await ensureSharedBastionActorSheet(actor);
   const sheet = actor.sheet;
   if (!sheet?.render) return;
   if (sheet.tabGroups) sheet.tabGroups.primary = "bastion";
@@ -774,11 +1030,16 @@ function patchDndBastionAdvance() {
 }
 
 export function registerSharedBastionHooks() {
-  Hooks.on("renderApplicationV2", (sheet, html) => bindSharedBastionTab(sheet, html));
-  Hooks.on("renderActorSheet", (sheet, html) => bindSharedBastionTab(sheet, html));
-  Hooks.on("renderActorSheet5e", (sheet, html) => bindSharedBastionTab(sheet, html));
-  Hooks.on("renderCharacterActorSheet", (sheet, html) => bindSharedBastionTab(sheet, html));
-  Hooks.on("dnd5e.renderActorSheet", (sheet, html) => bindSharedBastionTab(sheet, html));
+  const onActorSheetRender = (sheet, html) => {
+    markSharedBastionOnlySheet(sheet, html);
+    bindSharedBastionTab(sheet, html);
+  };
+  Hooks.on("renderApplicationV2", onActorSheetRender);
+  Hooks.on("renderActorSheet", onActorSheetRender);
+  Hooks.on("renderActorSheet5e", onActorSheetRender);
+  Hooks.on("renderCharacterActorSheet", onActorSheetRender);
+  Hooks.on("dnd5e.renderActorSheet", onActorSheetRender);
+  Hooks.on("tidy5e-sheet.renderActorSheet", onActorSheetRender);
 
   Hooks.on("createUser", () => syncSharedBastionActorOwnership());
   Hooks.on("deleteUser", () => syncSharedBastionActorOwnership());
@@ -786,7 +1047,9 @@ export function registerSharedBastionHooks() {
 
 export async function initializeSharedBastion() {
   applySharedBastionFacilitySlots();
+  registerSharedBastionActorSheet();
   const actor = await getSharedBastionActor();
+  await ensureSharedBastionActorSheet(actor);
   patchSharedBastionSheetTabs(actor);
   patchDndBastionAdvance();
   await syncSharedBastionActorOwnership();
