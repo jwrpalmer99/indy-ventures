@@ -944,7 +944,40 @@
 
 .dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .tab[data-tab="bastion"] {
   display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   min-height: 100%;
+}
+
+.indy-shared-bastion-level {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  margin: 0 0 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.indy-shared-bastion-level label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.indy-shared-bastion-level input {
+  flex: 0 0 5rem;
+  width: 5rem;
+  text-align: center;
+}
+
+.indy-shared-bastion-level button {
+  flex: 0 0 auto;
+  width: var(--form-field-height, 32px);
+  min-width: var(--form-field-height, 32px);
+  min-height: var(--form-field-height, 32px);
 }
 
 .tidy5e-sheet .tidy-tabs .indy-shared-bastion-tidy-tab {

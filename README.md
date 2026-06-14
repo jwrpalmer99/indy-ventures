@@ -27,7 +27,7 @@ The module works inside the existing D&D5e bastion experience. You still build a
 ## GM Setup
 
 1. Enable D&D5e bastions in the D&D5e system settings.
-2. Make sure the bastion actor can use bastions. In D&D5e this normally means the character is eligible for bastion features, such as being high enough level.
+2. Make sure the bastion actor can use bastions. For shared bastions, a GM can set the **Bastion Level** on the shared bastion sheet instead of adding character class levels.
 3. Add a special facility to the bastion.
 4. Open the facility item and go to **Details -> Venture Automation**.
 5. Check **Enable Venture**.
@@ -73,6 +73,10 @@ Configure it from **Configure Settings -> Module Settings -> Indy Ventures -> Sh
 4. Turn on **Sync Actor Ownership** if players should use D&D5e's normal bastion controls.
 5. Turn on **Advance Only Shared Bastion** if the D&D5e advance button should advance only the shared bastion.
 
+When a GM chooses a new shared bastion actor, the shared default permission is set to `Owner`. Individual player overrides are left unchanged.
+
+The shared bastion must be a real D&D5e character actor, but it does not need character class levels. GMs see a **Bastion Level** control at the top of the shared bastion sheet while the sheet is in edit mode. Set it to the party's bastion level, usually at least 5, and the module uses that fake level for bastion eligibility, facility search, and facility slot limits. If no fake level is set, the shared bastion falls back to the actor's real character level.
+
 When shared bastion mode is enabled, the normal **Bastion** tab on a player character opens the shared bastion. The module does not add a second shared-bastion button.
 
 The selected shared bastion actor uses the **Shared Bastion Sheet**. This sheet focuses on the bastion view and hides the normal character tabs, ability sections, level details, inventory, and other character-sheet areas that are not needed for a party bastion. The GM does not normally need to select it manually; the module assigns it to the shared bastion actor when shared bastion settings are saved.
@@ -103,6 +107,8 @@ Use `level:slots` entries in the settings, such as:
 
 - Normal special facilities: `5:2, 9:4, 13:5, 17:6`
 - Indy Venture facilities: `5:6`
+
+If the Indy Venture slot total is `0` for the shared bastion level, the Indy Venture Facilities section is hidden unless the bastion already has venture facilities to show.
 
 Basic facilities are left to normal D&D5e behavior.
 

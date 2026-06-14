@@ -8,6 +8,7 @@ import { parseBoonsText, parseBoonPerTurnLimit, parseBoonPurchaseWhen, resolveRe
 import { moduleLog } from "./logger.js";
 import {
   canManageFacilityVenture,
+  getSharedBastionLevel,
   getSharedBastionFacilitySlotLimits,
   getSharedBastionSpecialFacilityLimitStatus,
   isSharedBastionActor,
@@ -1619,6 +1620,8 @@ function renderSharedBastionFacilityBuckets(sheet, html) {
 
   setFacilityCounter(special, normalValue, limits.normalSpecial);
 
+  if (limits.ventureSpecial <= 0 && effectiveVentureValue <= 0) return;
+
   const sectionFactory = tidy ? createTidyVentureFacilitiesSection : createVentureFacilitiesSection;
   const section = sectionFactory(root.ownerDocument, {
     chosen: ventureElements,
@@ -1652,7 +1655,7 @@ async function openVentureFacilityBrowser(actor, event) {
           special: 1,
           basic: -1
         },
-        level: { max: actor.system?.details?.level ?? 0 }
+        level: { max: isSharedBastionActor(actor) ? getSharedBastionLevel(actor) : (actor.system?.details?.level ?? 0) }
       }
     }
   };

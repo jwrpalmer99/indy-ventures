@@ -25,9 +25,13 @@ export const DEFAULT_FACILITY_VENTURE_PERMISSIONS = {
 };
 
 const patchedSheetClasses = new WeakSet();
+const patchedBastionLevelSheetClasses = new WeakSet();
 const facilityVentureLocks = new Map();
+const sharedBastionSheetModes = new WeakMap();
 const SHARED_BASTION_SHEET_CLASS_ID = `${MODULE_ID}.SharedBastionActorSheet`;
+const SHARED_BASTION_LEVEL_FLAG = "bastionLevel";
 let dndBastionAdvancePatched = false;
+let dndFacilityBrowserPatched = false;
 let originalDndFacilityAdvancement = null;
 let sharedBastionActorSheetClass = null;
 let sharedBastionActorSheetRegistered = false;
@@ -175,7 +179,7 @@ export function getFacilitySlotLimit(table, level) {
 export function getSharedBastionFacilitySlotLimits(actor = null) {
   const config = getSharedBastionConfig();
   const enabled = Boolean(config.enabled && config.facilitySlots.enabled && (!actor || isSharedBastionActor(actor)));
-  const level = Number(actor?.system?.details?.level ?? 0);
+  const level = getActorBastionLevel(actor);
   return {
     enabled,
     normalSpecial: getFacilitySlotLimit(config.facilitySlots.normalSpecial, level),
@@ -216,6 +220,33 @@ export function getSharedBastionSpecialFacilityLimitStatus(actor, { venture = fa
     usage,
     limits
   };
+}
+
+function getBastionMaximumLevel() {
+  const max = Number(CONFIG?.DND5E?.maxLevel ?? 20);
+  return Number.isInteger(max) && max > 0 ? max : 20;
+}
+
+function normalizeBastionLevel(value, fallback = null, minimum = 1) {
+  const level = Number(value);
+  if (!Number.isFinite(level)) return fallback;
+  return Math.min(Math.max(Math.trunc(level), minimum), getBastionMaximumLevel());
+}
+
+export function getSharedBastionLevel(actor, { fallbackToActor = true } = {}) {
+  const configured = isSharedBastionActor(actor)
+    ? normalizeBastionLevel(actor.getFlag?.(MODULE_ID, SHARED_BASTION_LEVEL_FLAG), null)
+    : null;
+  if (configured !== null) return configured;
+  if (!fallbackToActor) return null;
+  const actorLevel = normalizeBastionLevel(actor?.system?.details?.level, 0, 0) ?? 0;
+  if (isSharedBastionActor(actor) && actorLevel < getBastionMinimumLevel()) return getBastionMinimumLevel();
+  return actorLevel;
+}
+
+function getActorBastionLevel(actor) {
+  if (isSharedBastionActor(actor)) return getSharedBastionLevel(actor);
+  return normalizeBastionLevel(actor?.system?.details?.level, 0, 0) ?? 0;
 }
 
 export function getSharedBastionConfig() {
@@ -574,6 +605,9 @@ export class SharedBastionConfigApplication extends HandlebarsApplicationMixin(A
     if (!form) return;
 
     const data = new FormData(form);
+    const previousConfig = getSharedBastionConfig();
+    const actorUuid = normalizeActorUuid(data.get("actorUuid"));
+    const sharedActorChanged = Boolean(actorUuid) && actorUuid !== previousConfig.actorUuid;
     const users = {};
     for (const user of game.users.filter(entry => !entry.isGM)) {
       const permission = normalizePermissionName(data.get(`user.${user.id}`), "");
@@ -582,8 +616,8 @@ export class SharedBastionConfigApplication extends HandlebarsApplicationMixin(A
 
     const config = normalizeSharedBastionConfig({
       enabled: data.get("enabled") !== null,
-      actorUuid: data.get("actorUuid"),
-      defaultPermission: data.get("defaultPermission"),
+      actorUuid,
+      defaultPermission: sharedActorChanged ? "OWNER" : data.get("defaultPermission"),
       syncActorOwnership: data.get("syncActorOwnership") !== null,
       limitGlobalAdvance: data.get("limitGlobalAdvance") !== null,
       facilitySlots: {
@@ -668,8 +702,168 @@ export async function syncSharedBastionActorOwnership() {
   await actor.update({ ownership }, { render: false });
 }
 
+function getBastionSlotLimit(type, level) {
+  const config = CONFIG?.DND5E?.facilities?.advancement?.[type] ?? {};
+  const entry = Object.entries(config)
+    .map(([entryLevel, slots]) => [Number(entryLevel), Number(slots)])
+    .filter(([entryLevel, slots]) => Number.isInteger(entryLevel) && entryLevel <= level && Number.isInteger(slots))
+    .sort(([a], [b]) => b - a)[0];
+  return entry?.[1] ?? 0;
+}
+
+function applySharedBastionLevelToContext(actor, context) {
+  if (!isSharedBastionActor(actor) || !context?.facilities) return;
+  const level = getSharedBastionLevel(actor);
+  context.indySharedBastionLevel = level;
+
+  for (const [type, facilities] of Object.entries(context.facilities)) {
+    const max = getBastionSlotLimit(type, level);
+    facilities.value = (facilities.chosen ?? []).filter(({ free }) => (type === "basic") || !free).length;
+    facilities.max = max;
+    facilities.available = Array.fromRange(Math.max(0, max - facilities.value)).map(() => ({
+      label: `DND5E.FACILITY.AvailableFacility.${type}.free`
+    }));
+  }
+
+  if (!context.facilities.basic?.available?.length) {
+    context.facilities.basic?.available?.push?.({
+      label: "DND5E.FACILITY.AvailableFacility.basic.build"
+    });
+  }
+}
+
+function patchSharedBastionLevelMethods(sheetClass) {
+  if (!sheetClass || patchedBastionLevelSheetClasses.has(sheetClass)) return;
+  patchedBastionLevelSheetClasses.add(sheetClass);
+
+  if ((typeof sheetClass.hasBastion === "function") && !sheetClass.hasBastion._indySharedBastionPatched) {
+    const originalHasBastion = sheetClass.hasBastion;
+    sheetClass.hasBastion = function(actor, ...args) {
+      if (isSharedBastionActor(actor)) {
+        return Boolean(game.settings.get("dnd5e", "bastionConfiguration")?.enabled)
+          && getSharedBastionLevel(actor) >= getBastionMinimumLevel();
+      }
+      return originalHasBastion.call(this, actor, ...args);
+    };
+    sheetClass.hasBastion._indySharedBastionPatched = true;
+  }
+
+  const prototype = sheetClass.prototype;
+  patchSharedBastionEditModeMethods(prototype);
+  patchSharedBastionFakeLevelRenderMethods(prototype);
+  patchSharedBastionFindItemAction(prototype);
+  if (!prototype || (typeof prototype._prepareBastionContext !== "function")
+    || prototype._prepareBastionContext._indySharedBastionPatched) return;
+
+  const originalPrepareBastionContext = prototype._prepareBastionContext;
+  prototype._prepareBastionContext = async function(context, options) {
+    const prepared = await originalPrepareBastionContext.call(this, context, options);
+    applySharedBastionLevelToContext(this.actor ?? this.document, prepared ?? context);
+    return prepared;
+  };
+  prototype._prepareBastionContext._indySharedBastionPatched = true;
+}
+
+function withTemporarySharedBastionLevel(sheet, work) {
+  const actor = sheet?.actor ?? sheet?.document;
+  if (!isSharedBastionActor(actor)) return work();
+
+  const restore = applyTemporarySharedBastionLevel(actor);
+  try {
+    return work();
+  } finally {
+    restore?.();
+  }
+}
+
+async function withTemporarySharedBastionLevelAsync(sheet, work) {
+  const actor = sheet?.actor ?? sheet?.document;
+  if (!isSharedBastionActor(actor)) return work();
+
+  const restore = applyTemporarySharedBastionLevel(actor);
+  try {
+    return await work();
+  } finally {
+    restore?.();
+  }
+}
+
+function patchSharedBastionFakeLevelRenderMethods(prototype) {
+  if (!prototype) return;
+
+  for (const methodName of [
+    "_prepareContext",
+    "_preparePartContext",
+    "_prepareTabsContext",
+    "_configureRenderParts",
+    "_getTabs"
+  ]) {
+    const original = prototype[methodName];
+    if (typeof original !== "function" || original._indySharedBastionFakeLevelPatched) continue;
+
+    prototype[methodName] = function(...args) {
+      const call = () => original.apply(this, args);
+      return methodName.startsWith("_prepare")
+        ? withTemporarySharedBastionLevelAsync(this, call)
+        : withTemporarySharedBastionLevel(this, call);
+    };
+    prototype[methodName]._indySharedBastionFakeLevelPatched = true;
+  }
+}
+
+function patchSharedBastionEditModeMethods(prototype) {
+  if (!prototype) return;
+  for (const methodName of [
+    "_onChangeSheetMode",
+    "_onToggleSheetMode",
+    "_onToggleEditMode",
+    "_toggleEditMode",
+    "changeSheetMode",
+    "toggleEditMode",
+    "toggleSheetMode",
+    "setSheetMode"
+  ]) {
+    const original = prototype[methodName];
+    if (typeof original !== "function" || original._indySharedBastionPatched) continue;
+    moduleLog("Patching shared bastion sheet mode method", {
+      sheetClass: prototype.constructor?.name ?? "",
+      methodName
+    });
+    prototype[methodName] = async function(...args) {
+      const actor = this.actor ?? this.document;
+      if (isSharedBastionActor(actor)) {
+        updateSharedBastionSheetModeFromValues(this, args);
+        moduleLog("Shared bastion sheet mode method called", {
+          actor: actor.name,
+          sheetClass: this.constructor?.name ?? "",
+          methodName,
+          args: summarizeModeValues(args),
+          before: getSharedBastionSheetModeDebug(this),
+          beforeJson: JSON.stringify(getSharedBastionSheetModeDebug(this))
+        });
+      }
+      const result = await original.apply(this, args);
+      if (isSharedBastionActor(actor)) {
+        updateSharedBastionSheetModeFromValues(this, [result, ...args]);
+        moduleLog("Shared bastion sheet mode method completed", {
+          actor: actor.name,
+          sheetClass: this.constructor?.name ?? "",
+          methodName,
+          result: summarizeModeValues([result]),
+          after: getSharedBastionSheetModeDebug(this),
+          afterJson: JSON.stringify(getSharedBastionSheetModeDebug(this))
+        });
+        window.setTimeout(() => renderSharedBastionLevelControl(this, this.element), 0);
+      }
+      return result;
+    };
+    prototype[methodName]._indySharedBastionPatched = true;
+  }
+}
+
 function patchSharedBastionSheetTabs(actor = null) {
   const sheetClass = actor?.sheet?.constructor;
+  patchSharedBastionLevelMethods(sheetClass);
   const prototype = sheetClass?.prototype;
   if (!prototype?._prepareTabsContext || patchedSheetClasses.has(sheetClass)) return;
 
@@ -680,16 +874,20 @@ function patchSharedBastionSheetTabs(actor = null) {
   prototype._prepareTabsContext = async function(context, options) {
     const actor = this.actor ?? this.document;
     const sharedActor = getSharedBastionActorSync();
+    const sharedBastionEnabled = getSharedBastionConfig().enabled
+      && canViewActorVentures(sharedActor, game.user, "LIMITED");
+    const hasBastionAccess = isSharedBastionActor(actor)
+      ? hasActorBastionLevel(actor)
+      : (sharedBastionEnabled ? hasActorBastionLevel(sharedActor) : hasActorBastionLevel(actor));
     const forceBastionTab = Boolean(actor?.type === "character")
       && Boolean(game.settings.get("dnd5e", "bastionConfiguration")?.enabled)
-      && hasActorBastionLevel(actor)
+      && hasBastionAccess
       && (
         isSharedBastionActor(actor)
         || (
           actor?.documentName === "Actor"
           && !isSharedBastionActor(actor)
-          && getSharedBastionConfig().enabled
-          && canViewActorVentures(sharedActor, game.user, "LIMITED")
+          && sharedBastionEnabled
         )
       )
       && (typeof parentPrepareTabs === "function");
@@ -811,10 +1009,12 @@ function registerSharedBastionActorSheet() {
 
   const { baseClass } = getCharacterSheetClassConfig();
   if (!baseClass) return null;
+  patchSharedBastionLevelMethods(baseClass);
 
   if (!sharedBastionActorSheetClass || Object.getPrototypeOf(sharedBastionActorSheetClass) !== baseClass) {
     sharedBastionActorSheetClass = createSharedBastionActorSheetClass(baseClass);
   }
+  patchSharedBastionLevelMethods(sharedBastionActorSheetClass);
 
   sheetConfig.registerSheet(Actor, MODULE_ID, sharedBastionActorSheetClass, {
     types: ["character"],
@@ -857,8 +1057,301 @@ function getBastionMinimumLevel() {
 }
 
 function hasActorBastionLevel(actor) {
-  const level = Number(actor?.system?.details?.level ?? 0);
+  const level = getActorBastionLevel(actor);
   return level >= getBastionMinimumLevel();
+}
+
+function applyTemporarySharedBastionLevel(actor) {
+  const level = getSharedBastionLevel(actor);
+  const details = actor?.system?.details;
+  if (!level || !details) return null;
+
+  const previous = details.level;
+  try {
+    details.level = level;
+  } catch (error) {
+    return null;
+  }
+
+  return () => {
+    try {
+      details.level = previous;
+    } catch (error) {
+      // Leave the temporary value in place if the system rejects restoration.
+    }
+  };
+}
+
+function bindSharedBastionLevelEvents(sheet, root) {
+  const actor = sheet?.document ?? sheet?.actor;
+  if (!isSharedBastionActor(actor) || !root || root.dataset.indySharedBastionLevelEvents === "1") return;
+  root.dataset.indySharedBastionLevelEvents = "1";
+
+  root.addEventListener("click", event => {
+    const target = event.target?.closest?.("[data-action='findItem'][data-item-type='facility']");
+    if (!target) return;
+    const restore = applyTemporarySharedBastionLevel(actor);
+    if (restore) window.setTimeout(restore, 0);
+  }, { capture: true });
+}
+
+function patchSharedBastionFindItemAction(prototype) {
+  if (!prototype) return;
+  for (const methodName of ["_onFindItem", "_findItem", "findItem"]) {
+    const original = prototype[methodName];
+    if (typeof original !== "function" || original._indySharedBastionFakeLevelPatched) continue;
+    prototype[methodName] = async function(...args) {
+      return withTemporarySharedBastionLevelAsync(this, () => original.apply(this, args));
+    };
+    prototype[methodName]._indySharedBastionFakeLevelPatched = true;
+  }
+}
+
+function getSharedBastionLevelPanel(root) {
+  return root.querySelector('.tab[data-tab="bastion"], .tidy-tab.bastion, [data-tab-contents-for="bastion"]')
+    ?? root.querySelector(".tab-body")
+    ?? root;
+}
+
+function getModeStateFromPrimitive(value) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    if (value === 2) return true;
+    if (value === 1) return false;
+  }
+  const text = String(value).trim().toLowerCase();
+  if (text === "2") return true;
+  if (text === "1") return false;
+  if (["edit", "editing", "editmode", "edit-mode", "sheetedit", "sheet-edit", "unlocked"].includes(text)) return true;
+  if (["play", "playing", "playmode", "play-mode", "sheetplay", "sheet-play", "locked", "view", "viewing"].includes(text)) return false;
+  return null;
+}
+
+function inferEditModeFromValue(value, seen = new WeakSet()) {
+  const primitive = getModeStateFromPrimitive(value);
+  if (primitive !== null) return primitive;
+  if (!value || (typeof value !== "object")) return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = inferEditModeFromValue(entry, seen);
+      if (result !== null) return result;
+    }
+    return null;
+  }
+
+  if ((typeof value.get === "function") && (value.get.length === 0)) {
+    try {
+      const result = inferEditModeFromValue(value.get(), seen);
+      if (result !== null) return result;
+    } catch (error) {
+      // Some store-like objects expose get methods that require arguments.
+    }
+  }
+
+  for (const key of ["value", "current", "mode", "sheetMode", "editMode", "state", "detail"]) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      const result = inferEditModeFromValue(value[key], seen);
+      if (result !== null) return result;
+    }
+  }
+  return null;
+}
+
+function updateSharedBastionSheetModeFromValues(sheet, values) {
+  const editMode = inferEditModeFromValue(values);
+  if (editMode === null) return;
+  sharedBastionSheetModes.set(sheet, editMode);
+}
+
+function summarizeModeValue(value) {
+  const state = getObjectStateValue(value);
+  return {
+    rawType: typeof value,
+    rawConstructor: value?.constructor?.name ?? "",
+    rawString: (typeof value === "object") ? "" : String(value),
+    state,
+    edit: inferEditModeFromValue(value)
+  };
+}
+
+function summarizeModeValues(values) {
+  return values.map(value => summarizeModeValue(value));
+}
+
+function getObjectStateValue(value, seen = new WeakSet()) {
+  if (!value || (typeof value !== "object")) return value;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  if ((typeof value.get === "function") && (value.get.length === 0)) {
+    try {
+      const result = value.get();
+      if (result !== value) return getObjectStateValue(result, seen);
+    } catch (error) {
+      // Some store-like objects expose get methods that require arguments.
+    }
+  }
+
+  for (const key of ["value", "current", "mode", "sheetMode", "editMode", "state"]) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      const result = getObjectStateValue(value[key], seen);
+      if (result !== null && result !== undefined) return result;
+    }
+  }
+  return null;
+}
+
+function summarizeSheetModeCandidate(label, value) {
+  const state = getObjectStateValue(value);
+  return {
+    label,
+    rawType: typeof value,
+    rawConstructor: value?.constructor?.name ?? "",
+    rawString: (typeof value === "object") ? "" : String(value),
+    state,
+    stateType: typeof state,
+    edit: isEditModeStateValue(state)
+  };
+}
+
+function isEditModeStateValue(state) {
+  if (state === true) return true;
+  if (state === false || state === null || state === undefined) return false;
+  return ["edit", "editing", "editmode", "edit-mode", "sheetedit", "sheet-edit", "unlocked"]
+    .includes(String(state).trim().toLowerCase());
+}
+
+function isEditModeState(value) {
+  const state = getObjectStateValue(value);
+  return isEditModeStateValue(state);
+}
+
+function getSheetModeCandidates(sheet) {
+  return [
+    ["sheet.editMode", sheet?.editMode],
+    ["sheet._editMode", sheet?._editMode],
+    ["sheet.mode", sheet?.mode],
+    ["sheet._mode", sheet?._mode],
+    ["sheet.sheetMode", sheet?.sheetMode],
+    ["sheet._sheetMode", sheet?._sheetMode],
+    ["sheet.currentSheetMode", sheet?.currentSheetMode],
+    ["sheet.options.editMode", sheet?.options?.editMode],
+    ["sheet.options.mode", sheet?.options?.mode],
+    ["sheet.options.sheetMode", sheet?.options?.sheetMode],
+    ["sheet.state.editMode", sheet?.state?.editMode],
+    ["sheet.state.mode", sheet?.state?.mode],
+    ["sheet.state.sheetMode", sheet?.state?.sheetMode],
+    ["sheet.reactive.editMode", sheet?.reactive?.editMode],
+    ["sheet.reactive.mode", sheet?.reactive?.mode],
+    ["sheet.reactive.sheetMode", sheet?.reactive?.sheetMode],
+    ["sheet.context.editMode", sheet?.context?.editMode],
+    ["sheet.context.mode", sheet?.context?.mode],
+    ["sheet.context.sheetMode", sheet?.context?.sheetMode]
+  ];
+}
+
+function getSharedBastionSheetModeDebug(sheet) {
+  return getSheetModeCandidates(sheet)
+    .map(([label, value]) => summarizeSheetModeCandidate(label, value))
+    .filter(candidate => candidate.state !== undefined || candidate.rawString || candidate.rawConstructor);
+}
+
+function isSharedBastionSheetInEditMode(sheet) {
+  if (sharedBastionSheetModes.has(sheet)) return sharedBastionSheetModes.get(sheet) === true;
+  return getSheetModeCandidates(sheet).some(([, value]) => isEditModeState(value));
+}
+
+async function saveSharedBastionLevel(actor, input) {
+  if (!game.user?.isGM || !isSharedBastionActor(actor)) return;
+  const level = normalizeBastionLevel(input?.value, getBastionMinimumLevel(), getBastionMinimumLevel());
+  if (!level) return;
+
+  input.value = String(level);
+  input.disabled = true;
+  try {
+    await actor.setFlag(MODULE_ID, SHARED_BASTION_LEVEL_FLAG, level);
+    ui.notifications.info("INDYVENTURES.SharedBastion.BastionLevelSaved", { localize: true });
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function renderSharedBastionLevelControl(sheet, root) {
+  const actor = sheet?.document ?? sheet?.actor;
+  if (!game.user?.isGM || !isSharedBastionActor(actor) || !root) return;
+
+  const existing = root.querySelector("[data-indy-shared-bastion-level]");
+  const editMode = isSharedBastionSheetInEditMode(sheet);
+  moduleLog("Shared bastion level control visibility check", {
+    actor: actor.name,
+    sheetClass: sheet?.constructor?.name ?? "",
+    editMode,
+    storedMode: sharedBastionSheetModes.has(sheet) ? sharedBastionSheetModes.get(sheet) : null,
+    existing: Boolean(existing),
+    candidates: getSharedBastionSheetModeDebug(sheet),
+    candidatesJson: JSON.stringify(getSharedBastionSheetModeDebug(sheet))
+  });
+
+  if (!editMode) {
+    if (existing) moduleLog("Removing shared bastion level control because sheet is not in edit mode", {
+      actor: actor.name,
+      sheetClass: sheet?.constructor?.name ?? ""
+    });
+    existing?.remove();
+    return;
+  }
+
+  const panel = getSharedBastionLevelPanel(root);
+  if (existing) {
+    moduleLog("Shared bastion level control already present", {
+      actor: actor.name,
+      sheetClass: sheet?.constructor?.name ?? ""
+    });
+    return;
+  }
+
+  const doc = root.ownerDocument;
+  const form = doc.createElement("form");
+  form.classList.add("indy-shared-bastion-level");
+  form.dataset.indySharedBastionLevel = "1";
+
+  const label = doc.createElement("label");
+  label.textContent = game.i18n.localize("INDYVENTURES.SharedBastion.BastionLevel");
+
+  const input = doc.createElement("input");
+  input.type = "number";
+  input.name = "bastionLevel";
+  input.min = String(getBastionMinimumLevel());
+  input.max = String(getBastionMaximumLevel());
+  input.step = "1";
+  input.value = String(Math.max(getSharedBastionLevel(actor) || 0, getBastionMinimumLevel()));
+  input.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.BastionLevelHint");
+
+  const button = doc.createElement("button");
+  button.type = "submit";
+  button.dataset.tooltip = game.i18n.localize("INDYVENTURES.SharedBastion.BastionLevelSave");
+  button.setAttribute("aria-label", game.i18n.localize("INDYVENTURES.SharedBastion.BastionLevelSave"));
+  const icon = doc.createElement("i");
+  icon.classList.add("fas", "fa-save");
+  icon.setAttribute("inert", "");
+  button.append(icon);
+
+  form.append(label, input, button);
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    saveSharedBastionLevel(actor, input);
+  });
+
+  panel.prepend(form);
+  moduleLog("Inserted shared bastion level control", {
+    actor: actor.name,
+    sheetClass: sheet?.constructor?.name ?? "",
+    level: input.value
+  });
 }
 
 function isTidySheetRoot(root) {
@@ -880,6 +1373,7 @@ function markSharedBastionOnlySheet(sheet, html) {
     root.querySelector(".tidy5e-sheet")?.classList.add("indy-tidy-shared-bastion-sheet");
   }
   if (sheet?.tabGroups) sheet.tabGroups.primary = "bastion";
+  bindSharedBastionLevelEvents(sheet, root);
 
   for (const tab of root.querySelectorAll('[data-tab="bastion"], [data-tab-id="bastion"]')) {
     tab.classList.add("active");
@@ -889,6 +1383,7 @@ function markSharedBastionOnlySheet(sheet, html) {
     panel.classList.add("active");
     panel.removeAttribute("hidden");
   }
+  renderSharedBastionLevelControl(sheet, root);
 }
 
 function bindSharedBastionTab(sheet, html) {
@@ -897,12 +1392,13 @@ function bindSharedBastionTab(sheet, html) {
   if (!getSharedBastionConfig().enabled) return;
   if (!game.settings.get("dnd5e", "bastionConfiguration")?.enabled) return;
   if (isSharedBastionActor(actor)) return;
-  if (!canViewActorVentures(getSharedBastionActorSync(), game.user, "LIMITED")) return;
+  const sharedActor = getSharedBastionActorSync();
+  if (!canViewActorVentures(sharedActor, game.user, "LIMITED")) return;
 
   const root = resolveHtmlRoot(sheet, html);
   if (!root) return;
   const tidy = isTidySheetRoot(root);
-  if (!hasActorBastionLevel(actor)) {
+  if (!hasActorBastionLevel(actor) && !hasActorBastionLevel(sharedActor)) {
     if (tidy) removeTidyBastionTabs(root);
     return;
   }
@@ -1030,6 +1526,40 @@ function patchDndBastionAdvance() {
   };
 }
 
+function isFacilityBrowserSelectOptions(options) {
+  const locked = options?.filters?.locked;
+  if (!locked) return false;
+  const types = locked.types;
+  if (types instanceof Set && types.has("facility")) return true;
+  if (Array.isArray(types) && types.includes("facility")) return true;
+  return Boolean(locked.additional?.type?.basic || locked.additional?.type?.special);
+}
+
+function patchDndFacilityBrowserLevel() {
+  const browser = globalThis.dnd5e?.applications?.CompendiumBrowser;
+  if (!browser?.selectOne || dndFacilityBrowserPatched) return;
+  dndFacilityBrowserPatched = true;
+
+  const original = browser.selectOne.bind(browser);
+  browser.selectOne = async function(options = {}, ...args) {
+    if (isFacilityBrowserSelectOptions(options)) {
+      const actor = getSharedBastionActorSync();
+      const level = getSharedBastionLevel(actor);
+      const current = Number(options.filters?.locked?.additional?.level?.max ?? 0);
+      if (actor && level > current) {
+        foundry.utils.setProperty(options, "filters.locked.additional.level.max", level);
+        moduleLog("Adjusted D&D facility browser level filter for shared bastion", {
+          actor: actor.name,
+          current,
+          level,
+          filters: options.filters
+        });
+      }
+    }
+    return original(options, ...args);
+  };
+}
+
 export function registerSharedBastionHooks() {
   const onActorSheetRender = (sheet, html) => {
     markSharedBastionOnlySheet(sheet, html);
@@ -1053,5 +1583,6 @@ export async function initializeSharedBastion() {
   await ensureSharedBastionActorSheet(actor);
   patchSharedBastionSheetTabs(actor);
   patchDndBastionAdvance();
+  patchDndFacilityBrowserLevel();
   await syncSharedBastionActorOwnership();
 }
