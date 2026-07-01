@@ -909,6 +909,40 @@ function getCharacterSheetClassConfig() {
   };
 }
 
+function getApplicationWindowRoot(sheet, root) {
+  return sheet?.element?.closest?.(".app, .application, .window-app")
+    ?? root?.closest?.(".app, .application, .window-app")
+    ?? sheet?.element
+    ?? root
+    ?? null;
+}
+
+function fitSharedBastionSheetToViewport(sheet, root = null) {
+  const windowRoot = getApplicationWindowRoot(sheet, root);
+  root = windowRoot ?? sheet?.element;
+  if (!root || root.classList?.contains("minimized") || root.classList?.contains("minimizing") || root.classList?.contains("maximizing")) return;
+
+  const viewportHeight = Number(globalThis.window?.innerHeight ?? 0);
+  if (!viewportHeight) return;
+
+  const availableHeight = Math.max(320, viewportHeight - 32);
+  root.style.maxHeight = `${availableHeight}px`;
+
+  const currentHeight = Number(sheet.position?.height ?? root.offsetHeight ?? 0);
+  const nextHeight = currentHeight ? Math.min(currentHeight, availableHeight) : availableHeight;
+  const currentTop = Number.isFinite(sheet.position?.top)
+    ? sheet.position.top
+    : Number.parseFloat(root.style.top);
+  const nextPosition = { height: nextHeight };
+
+  if (Number.isFinite(currentTop) && currentTop + nextHeight > viewportHeight - 16) {
+    nextPosition.top = Math.max(16, viewportHeight - nextHeight - 16);
+  }
+
+  if (typeof sheet.setPosition === "function") sheet.setPosition(nextPosition);
+  else root.style.height = `${nextHeight}px`;
+}
+
 function createSharedBastionActorSheetClass(BaseSheetClass) {
   class SharedBastionActorSheet extends BaseSheetClass {
     constructor(options = {}) {
@@ -981,6 +1015,8 @@ function createSharedBastionActorSheetClass(BaseSheetClass) {
       await super._onRender?.(context, options);
       markSharedBastionOnlySheet(this, this.element);
       Hooks.callAll(`${MODULE_ID}.renderSharedBastionSheet`, this, this.element);
+      fitSharedBastionSheetToViewport(this, this.element);
+      globalThis.window?.setTimeout?.(() => fitSharedBastionSheetToViewport(this, this.element), 0);
     }
   }
 
@@ -1368,6 +1404,7 @@ function markSharedBastionOnlySheet(sheet, html) {
   const root = resolveHtmlRoot(sheet, html);
   if (!root) return;
   root.classList.add("indy-shared-bastion-sheet");
+  getApplicationWindowRoot(sheet, root)?.classList?.add("indy-shared-bastion-sheet");
   if (isTidySheetRoot(root)) {
     root.classList.add("indy-tidy-shared-bastion-sheet");
     root.querySelector(".tidy5e-sheet")?.classList.add("indy-tidy-shared-bastion-sheet");
