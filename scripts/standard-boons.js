@@ -1,7 +1,7 @@
 import { MODULE_ID } from "./constants.js";
 import { grantBoonReward } from "./chat.js";
 import { canManageActorVentures, isIndyVentureFacility, isSharedBastionActor, isSharedBastionSheetInEditMode, withFacilityVentureLock } from "./shared-bastion.js";
-import { activeBoonStarts, asInt, assignedBoonHirelings, boonClaimCount, buildBoonLine, limit, parseBoons, rewardReferenceText } from "./standard-boons-data.js";
+import { activeBoonStarts, asInt, assignedBoonHirelings, boonClaimCount, buildBoonLine, limit, parseBoons, rewardReferenceText, spendCurrencyGp } from "./standard-boons-data.js";
 import { getActorGp, resolveRewardDocumentSync } from "./utils.js";
 
 const FLAG = "standardBoons";
@@ -111,7 +111,8 @@ function serializeBoonRows(root) {
       description: row.querySelector("[data-standard-boon-description]")?.value,
       reward: row.querySelector("[data-standard-boon-reward]")?.value,
       hirelingsRequired: row.querySelector("[data-standard-boon-hirelings]")?.value,
-      rewardsAvailable: row.querySelector("[data-standard-boon-rewards-available]")?.value
+      rewardsAvailable: row.querySelector("[data-standard-boon-rewards-available]")?.value,
+      restrictToOnePerPlayer: row.querySelector("[data-standard-boon-restrict-player]")?.checked !== false
     }))
     .filter(Boolean)
     .join("\n");
@@ -148,10 +149,11 @@ function getFacilityData(facility) {
         costGp: Math.max(asInt(entry.costGp, 0), 0),
         rewardGp: Math.max(asInt(entry.rewardGp, 0), 0),
         rewardsAvailable: Math.max(asInt(entry.rewardsAvailable, 1), 1),
-        claimedUserIds: Array.from(new Set(Array.isArray(entry.claimedUserIds) ? entry.claimedUserIds.map(String).filter(Boolean) : [])),
+        claimedUserIds: Array.isArray(entry.claimedUserIds) ? entry.claimedUserIds.map(String).filter(Boolean) : [],
         remainingTurns: Math.max(asInt(entry.remainingTurns, 0), 0),
         totalTurns: Math.max(asInt(entry.totalTurns, entry.remainingTurns ?? 1), 1),
         hirelingsRequired: Math.max(asInt(entry.hirelingsRequired, 0), 0),
+        restrictToOnePerPlayer: entry.restrictToOnePerPlayer !== false,
         complete: Boolean(entry.complete)
       }))
   };
@@ -184,6 +186,12 @@ function gpUpdate(actor, nextGp) {
 }
 
 function getBoonCostActor(actor, requestingUser = game.user) {
+  if (!isSharedBastionActor(actor)) return actor;
+  const character = requestingUser?.character;
+  return character?.documentName === "Actor" && character.type === "character" ? character : null;
+}
+
+function getBoonRewardActor(actor, requestingUser = game.user) {
   if (!isSharedBastionActor(actor)) return actor;
   const character = requestingUser?.character;
   return character?.documentName === "Actor" && character.type === "character" ? character : null;
@@ -267,8 +275,8 @@ async function startBoon(facility, index, key, requestingUser = game.user, { del
     if (boon.costGp && !costActor) {
       return actionResult(false, "warn", "INDYVENTURES.StandardBoons.NoStartingCharacter", {}, notify);
     }
-    const currentGp = getActorGp(costActor ?? actor);
-    if (currentGp < boon.costGp) {
+    const costUpdate = boon.costGp ? spendCurrencyGp(costActor?.system?.currency, boon.costGp) : {};
+    if (!costUpdate) {
       return actionResult(false, "warn", "INDYVENTURES.StandardBoons.NotEnoughGold", {
         cost: boon.costGp,
         actor: costActor?.name ?? actor.name
@@ -293,6 +301,7 @@ async function startBoon(facility, index, key, requestingUser = game.user, { del
         remainingTurns: boon.turns,
         totalTurns: boon.turns,
         hirelingsRequired: boon.hirelingsRequired,
+        restrictToOnePerPlayer: boon.restrictToOnePerPlayer !== false,
         complete: false
       }
     ];
@@ -307,7 +316,7 @@ async function startBoon(facility, index, key, requestingUser = game.user, { del
       startedThisTurn: roomStarted + 1,
       active
     });
-    if (boon.costGp) await gpUpdate(costActor, currentGp - boon.costGp);
+    if (boon.costGp) await costActor.update(costUpdate);
     const result = actionResult(true, "info", "INDYVENTURES.StandardBoons.Started", {
       boon: boon.name,
       room: facility.name
@@ -331,18 +340,23 @@ async function collectBoon(facility, id, requestingUser = game.user, { delegate 
     const boon = data.active.find(entry => entry.id === id);
     if (!boon || !boon.complete) return actionResult(false, "warn", "", {}, notify);
     const sharedBastion = isSharedBastionActor(actor);
-    const claimedUserIds = Array.from(new Set(boon.claimedUserIds ?? []));
-    if (sharedBastion && claimedUserIds.includes(requestingUser.id)) {
+    const claimedUserIds = Array.isArray(boon.claimedUserIds) ? boon.claimedUserIds.map(String).filter(Boolean) : [];
+    const restrictToOnePerPlayer = boon.restrictToOnePerPlayer !== false;
+    if (sharedBastion && restrictToOnePerPlayer && claimedUserIds.includes(requestingUser.id)) {
       return actionResult(false, "warn", "INDYVENTURES.StandardBoons.AlreadyCollected", {}, notify);
     }
     const claimCount = boonClaimCount(boon, sharedBastion);
     if (claimedUserIds.length >= boon.rewardsAvailable || claimCount <= 0) {
       return actionResult(false, "warn", "INDYVENTURES.StandardBoons.NoRewardsRemaining", {}, notify);
     }
+    const rewardActor = getBoonRewardActor(actor, requestingUser);
+    if (!rewardActor) {
+      return actionResult(false, "warn", "INDYVENTURES.StandardBoons.NoCollectingCharacter", {}, notify);
+    }
     let rewardName = null;
     if (boon.rewardUuid) {
       try {
-        rewardName = await grantBoonReward(actor, facility, boon, requestingUser, {
+        rewardName = await grantBoonReward(rewardActor, facility, boon, requestingUser, {
           allowVentureModifier: false,
           rollDurationFormula: false,
           quantity: claimCount
@@ -354,8 +368,10 @@ async function collectBoon(facility, id, requestingUser = game.user, { delegate 
       }
     }
     const gpReward = boon.rewardGp * claimCount;
-    if (gpReward) await gpUpdate(actor, getActorGp(actor) + gpReward);
-    const nextClaimedUserIds = sharedBastion ? [...claimedUserIds, requestingUser.id] : [];
+    if (gpReward) await gpUpdate(rewardActor, getActorGp(rewardActor) + gpReward);
+    const nextClaimedUserIds = sharedBastion
+      ? (restrictToOnePerPlayer ? Array.from(new Set([...claimedUserIds, requestingUser.id])) : [...claimedUserIds, requestingUser.id])
+      : [];
     const nextActive = !sharedBastion || nextClaimedUserIds.length >= boon.rewardsAvailable
       ? data.active.filter(entry => entry.id !== id)
       : data.active.map(entry => entry.id === id ? { ...entry, claimedUserIds: nextClaimedUserIds } : entry);
@@ -374,6 +390,7 @@ async function collectBoon(facility, id, requestingUser = game.user, { delegate 
       gp: gpReward
     }, notify);
     actor.sheet?.render(false);
+    if (rewardActor !== actor) rewardActor.sheet?.render(false);
     return result;
   });
 }
@@ -466,7 +483,7 @@ function isEditMode(root, sheet) {
   return false;
 }
 
-function renderBoonConfigRow(boon = {}) {
+function renderBoonConfigRow(boon = {}, sharedBastion = false) {
   return `<div class="indy-standard-boon-config-row" data-standard-boon-row>
     <label>${game.i18n.localize("INDYVENTURES.StandardBoons.Name")}
       <input type="text" value="${escapeHtml(boon.name ?? "")}" data-standard-boon-name>
@@ -486,6 +503,10 @@ function renderBoonConfigRow(boon = {}) {
     <label>${game.i18n.localize("INDYVENTURES.StandardBoons.RewardsAvailableLabel")}
       <input type="number" min="1" step="1" value="${Math.max(asInt(boon.rewardsAvailable, 1), 1)}" data-standard-boon-rewards-available>
     </label>
+    ${sharedBastion ? `<label>
+      <input type="checkbox" ${boon.restrictToOnePerPlayer === false ? "" : "checked"} data-standard-boon-restrict-player>
+      ${game.i18n.localize("INDYVENTURES.StandardBoons.RestrictPlayerLabel")}
+    </label>` : ""}
     <label class="wide">${game.i18n.localize("INDYVENTURES.StandardBoons.DescriptionLabel")}
       <input type="text" value="${escapeHtml(boon.description ?? "")}" data-standard-boon-description>
     </label>
@@ -525,7 +546,7 @@ function renderFacilityPanel(actor, facility, element, editMode = false) {
           : "";
         const claimed = Array.isArray(entry.claimedUserIds) ? entry.claimedUserIds.length : 0;
         const claimsLeft = Math.max(entry.rewardsAvailable - claimed, 0);
-        const userClaimed = sharedBastion && entry.claimedUserIds?.includes?.(game.user.id) === true;
+        const userClaimed = sharedBastion && entry.restrictToOnePerPlayer !== false && entry.claimedUserIds?.includes?.(game.user.id) === true;
         const claimStatus = sharedBastion && entry.complete
           ? game.i18n.format("INDYVENTURES.StandardBoons.Claims", { claimed, total: entry.rewardsAvailable })
           : "";
@@ -570,7 +591,7 @@ function renderFacilityPanel(actor, facility, element, editMode = false) {
         <input type="number" min="0" step="1" value="${data.roomPerTurn ?? 0}" data-standard-boon-room-limit>
       </label>
       <div class="indy-standard-boon-config-rows" data-standard-boon-rows>
-        ${(boons.length ? boons : [{}]).map(renderBoonConfigRow).join("")}
+        ${(boons.length ? boons : [{}]).map(boon => renderBoonConfigRow(boon, sharedBastion)).join("")}
       </div>
       <button type="button" data-action="addStandardBoonRow">${game.i18n.localize("INDYVENTURES.StandardBoons.Add")}</button>
       <button type="button" data-action="saveStandardBoonRoom">${game.i18n.localize("INDYVENTURES.StandardBoons.Save")}</button>
@@ -631,7 +652,7 @@ function bindStandardBoonEvents(root, actor) {
     if (action === "saveStandardBoonTotal") return saveActorTotal(actor, root.querySelector("[data-standard-boon-total-limit]")?.value);
     if (!facility) return;
     if (action === "addStandardBoonRow") {
-      facilityRoot.querySelector("[data-standard-boon-rows]")?.insertAdjacentHTML("beforeend", renderBoonConfigRow({}));
+      facilityRoot.querySelector("[data-standard-boon-rows]")?.insertAdjacentHTML("beforeend", renderBoonConfigRow({}, isSharedBastionActor(actor)));
       return;
     }
     if (action === "removeStandardBoonRow") {

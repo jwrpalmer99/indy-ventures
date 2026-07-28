@@ -3,6 +3,35 @@ export function asInt(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+const CURRENCY_IN_CP = {
+  pp: 1000,
+  gp: 100,
+  ep: 50,
+  sp: 10,
+  cp: 1
+};
+const CURRENCY_ORDER = ["pp", "gp", "ep", "sp", "cp"];
+
+function currencyCount(currency, key) {
+  return Math.max(asInt(currency?.[key], 0), 0);
+}
+
+export function currencyTotalCp(currency = {}) {
+  return CURRENCY_ORDER.reduce((total, key) => total + (currencyCount(currency, key) * CURRENCY_IN_CP[key]), 0);
+}
+
+export function spendCurrencyGp(currency = {}, costGp = 0) {
+  let remainingCp = currencyTotalCp(currency) - (Math.max(asInt(costGp, 0), 0) * CURRENCY_IN_CP.gp);
+  if (remainingCp < 0) return null;
+
+  return CURRENCY_ORDER.reduce((update, key) => {
+    const count = Math.floor(remainingCp / CURRENCY_IN_CP[key]);
+    remainingCp -= count * CURRENCY_IN_CP[key];
+    update[`system.currency.${key}`] = count;
+    return update;
+  }, {});
+}
+
 export function limit(value, fallback = 1) {
   const parsed = asInt(value, fallback);
   return parsed <= 0 ? null : parsed;
@@ -54,7 +83,8 @@ export function buildBoonLine(boon) {
     String(boon?.description ?? "").trim(),
     reward,
     Math.max(asInt(boon?.hirelingsRequired, 0), 0),
-    Math.max(asInt(boon?.rewardsAvailable, 1), 1)
+    Math.max(asInt(boon?.rewardsAvailable, 1), 1),
+    boon?.restrictToOnePerPlayer === false ? 0 : 1
   ].join(" | ");
 }
 
@@ -67,7 +97,8 @@ function boonKey(boon) {
     boon.description,
     boon.rewardUuid,
     boon.hirelingsRequired,
-    boon.rewardsAvailable
+    boon.rewardsAvailable,
+    boon.restrictToOnePerPlayer === false ? 0 : 1
   ].map(value => String(value ?? "").trim()).join("::");
 }
 
@@ -87,6 +118,7 @@ export function parseBoons(text = "") {
       const rewardRaw = hasGoldColumns ? parts[5] : parts[3];
       const hirelingsRaw = hasGoldColumns ? parts[6] : parts[4];
       const rewardsAvailableRaw = hasGoldColumns ? parts[7] : parts[5];
+      const restrictRaw = hasGoldColumns ? parts[8] : parts[6];
       const name = nameRaw.trim();
       if (!name) return null;
       const { rewardUuid, rewardLabel } = parseReward(rewardRaw);
@@ -99,7 +131,8 @@ export function parseBoons(text = "") {
         rewardUuid,
         rewardLabel: rewardLabel || rewardUuid,
         hirelingsRequired: Math.max(asInt(hirelingsRaw, 0), 0),
-        rewardsAvailable: Math.max(asInt(rewardsAvailableRaw, 1), 1)
+        rewardsAvailable: Math.max(asInt(rewardsAvailableRaw, 1), 1),
+        restrictToOnePerPlayer: String(restrictRaw ?? "1").trim() !== "0"
       };
       return { ...boon, key: boonKey(boon) };
     })
