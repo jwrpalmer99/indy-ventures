@@ -5,6 +5,7 @@ import { moduleWarn } from "./logger.js";
 import { registerSettings } from "./settings.js";
 import { registerFacilitySheetHooks, registerModuleApi, registerModuleTemplates } from "./sheet.js";
 import { initializeSharedBastion, registerSharedBastionHooks } from "./shared-bastion.js";
+import { registerStandardBoonHooks } from "./standard-boons.js";
 
 Hooks.once("init", async () => {
   registerSettings();
@@ -12,6 +13,7 @@ Hooks.once("init", async () => {
   await registerModuleTemplates();
   registerSharedBastionHooks();
   registerFacilitySheetHooks();
+  registerStandardBoonHooks();
   registerChatHooks();
 });
 

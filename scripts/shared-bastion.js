@@ -853,7 +853,10 @@ function patchSharedBastionEditModeMethods(prototype) {
           after: getSharedBastionSheetModeDebug(this),
           afterJson: JSON.stringify(getSharedBastionSheetModeDebug(this))
         });
-        window.setTimeout(() => renderSharedBastionLevelControl(this, this.element), 0);
+        window.setTimeout(() => {
+          renderSharedBastionLevelControl(this, this.element);
+          Hooks.callAll(`${MODULE_ID}.renderSharedBastionSheet`, this, this.element);
+        }, 0);
       }
       return result;
     };
@@ -1011,6 +1014,10 @@ function createSharedBastionActorSheetClass(BaseSheetClass) {
       };
     }
 
+    _renderAttunement() {}
+
+    _renderSpellbook() {}
+
     async _onRender(context, options) {
       await super._onRender?.(context, options);
       markSharedBastionOnlySheet(this, this.element);
@@ -1032,7 +1039,8 @@ function createSharedBastionActorSheetClass(BaseSheetClass) {
   });
   defaultOptions.classes = Array.from(new Set([
     ...(BaseSheetClass.DEFAULT_OPTIONS?.classes ?? []),
-    "indy-shared-bastion-sheet"
+    "indy-shared-bastion-sheet",
+    "titlebar"
   ]));
   SharedBastionActorSheet.DEFAULT_OPTIONS = defaultOptions;
 
@@ -1256,7 +1264,8 @@ function summarizeSheetModeCandidate(label, value) {
 
 function isEditModeStateValue(state) {
   if (state === true) return true;
-  if (state === false || state === null || state === undefined) return false;
+  if (state === 2) return true;
+  if (state === false || state === 1 || state === null || state === undefined) return false;
   return ["edit", "editing", "editmode", "edit-mode", "sheetedit", "sheet-edit", "unlocked"]
     .includes(String(state).trim().toLowerCase());
 }
@@ -1296,7 +1305,7 @@ function getSharedBastionSheetModeDebug(sheet) {
     .filter(candidate => candidate.state !== undefined || candidate.rawString || candidate.rawConstructor);
 }
 
-function isSharedBastionSheetInEditMode(sheet) {
+export function isSharedBastionSheetInEditMode(sheet) {
   if (sharedBastionSheetModes.has(sheet)) return sharedBastionSheetModes.get(sheet) === true;
   return getSheetModeCandidates(sheet).some(([, value]) => isEditModeState(value));
 }
@@ -1404,7 +1413,8 @@ function markSharedBastionOnlySheet(sheet, html) {
   const root = resolveHtmlRoot(sheet, html);
   if (!root) return;
   root.classList.add("indy-shared-bastion-sheet");
-  getApplicationWindowRoot(sheet, root)?.classList?.add("indy-shared-bastion-sheet");
+  const windowRoot = getApplicationWindowRoot(sheet, root);
+  windowRoot?.classList?.add("indy-shared-bastion-sheet", "titlebar");
   if (isTidySheetRoot(root)) {
     root.classList.add("indy-tidy-shared-bastion-sheet");
     root.querySelector(".tidy5e-sheet")?.classList.add("indy-tidy-shared-bastion-sheet");

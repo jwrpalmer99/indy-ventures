@@ -18,8 +18,10 @@ import { moduleLog } from "./logger.js";
 import {
   getPreferredVentureUser,
   getVentureSummaryWhisperUserIds,
+  isIndyVentureFacility,
   withFacilityVentureLock
 } from "./shared-bastion.js";
+import { processStandardBoonTurn } from "./standard-boons.js";
 
 const SOCKET_NAMESPACE = `module.${MODULE_ID}`;
 const pendingCoverageRequests = new Map();
@@ -883,6 +885,27 @@ function collectActiveBastionDurationEffects(actor) {
       effectName: effect.name
     });
   }
+  for (const item of actor?.items ?? []) {
+    let duration = getBastionDurationData(item);
+    if (!duration) {
+      for (const effect of item.effects ?? []) {
+        duration = getBastionDurationData(effect);
+        if (duration) break;
+      }
+    }
+    if (!duration?.consumePerTurn) continue;
+    if (duration.remainingTurns === null) continue;
+    trackedEffects.push({
+      effectId: item.id,
+      documentType: "Item",
+      remainingTurns: duration.remainingTurns,
+      durationPath: `${BASTION_DURATION_FLAG}.remainingTurns`,
+      ownerType: "actor",
+      ownerName: actor.name ?? actor.id ?? "",
+      ownerUuid: actor.uuid ?? "",
+      effectName: item.name
+    });
+  }
   return trackedEffects;
 }
 
@@ -916,7 +939,7 @@ async function decrementModifierDurations(usageMap) {
   for (const tracked of usageMap.values()) {
     if (tracked.forceDelete) {
       const ownerKey = tracked.ownerUuid;
-      const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], debug: [] };
+      const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], itemUpdates: [], itemDeletes: [], debug: [] };
       ownerEntry.debug.push({
         id: tracked.effectId,
         ownerType: tracked.ownerType,
@@ -924,7 +947,7 @@ async function decrementModifierDurations(usageMap) {
         action: "force-delete",
         reason: tracked.deleteReason ?? "unspecified"
       });
-      ownerEntry.deletes.push(tracked.effectId);
+      (tracked.documentType === "Item" ? ownerEntry.itemDeletes : ownerEntry.deletes).push(tracked.effectId);
       byOwner.set(ownerKey, ownerEntry);
       continue;
     }
@@ -933,7 +956,7 @@ async function decrementModifierDurations(usageMap) {
     if (currentRemaining <= 0) continue;
     const nextRemaining = Math.max(currentRemaining - 1, 0);
     const ownerKey = tracked.ownerUuid;
-    const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], debug: [] };
+    const ownerEntry = byOwner.get(ownerKey) ?? { updates: [], deletes: [], itemUpdates: [], itemDeletes: [], debug: [] };
     ownerEntry.debug.push({
       id: tracked.effectId,
       ownerType: tracked.ownerType,
@@ -943,9 +966,10 @@ async function decrementModifierDurations(usageMap) {
       action: nextRemaining <= 0 ? "delete" : "update"
     });
     if (nextRemaining <= 0) {
-      ownerEntry.deletes.push(tracked.effectId);
+      (tracked.documentType === "Item" ? ownerEntry.itemDeletes : ownerEntry.deletes).push(tracked.effectId);
     } else {
-      ownerEntry.updates.push({
+      const updates = tracked.documentType === "Item" ? ownerEntry.itemUpdates : ownerEntry.updates;
+      updates.push({
         _id: tracked.effectId,
         [tracked.durationPath || `${VENTURE_MODIFIER_FLAG}.remainingTurns`]: nextRemaining
       });
@@ -971,6 +995,12 @@ async function decrementModifierDurations(usageMap) {
     }
     if (entry.deletes.length && owner.deleteEmbeddedDocuments) {
       await owner.deleteEmbeddedDocuments("ActiveEffect", entry.deletes);
+    }
+    if (entry.itemUpdates.length) {
+      await owner.updateEmbeddedDocuments("Item", entry.itemUpdates);
+    }
+    if (entry.itemDeletes.length && owner.deleteEmbeddedDocuments) {
+      await owner.deleteEmbeddedDocuments("Item", entry.itemDeletes);
     }
   }
 }
@@ -2057,9 +2087,11 @@ export async function processActorVenturesFromBastionMessage(message) {
   const modifierDurationUsage = new Map();
   const bastionDurationEffects = collectActiveBastionDurationEffects(actor);
   queueModifierDurationUsage(modifierDurationUsage, bastionDurationEffects);
+  const standardBoonsProcessed = await processStandardBoonTurn(actor, turnId);
 
   const preparedVentures = [];
-  for (const facility of facilities) {
+  const ventureFacilities = facilities.filter(isIndyVentureFacility);
+  for (const facility of ventureFacilities) {
     try {
       const prepared = prepareSingleVentureTurn(facility, actor, turnId, modifierDurationUsage);
       if (!prepared) continue;
@@ -2122,6 +2154,7 @@ export async function processActorVenturesFromBastionMessage(message) {
       actor: actor.name,
       facilitiesProcessed: 0,
       gpAfter: getWalletCurrency(wallet, "gp"),
+      standardBoonsProcessed,
       bastionDurationsProcessed: bastionDurationEffects.length
     });
     return;
@@ -2130,6 +2163,7 @@ export async function processActorVenturesFromBastionMessage(message) {
     actor: actor.name,
     facilitiesProcessed: results.length,
     gpAfter: getWalletCurrency(wallet, "gp"),
+    standardBoonsProcessed,
     bastionDurationsProcessed: bastionDurationEffects.length
   });
 

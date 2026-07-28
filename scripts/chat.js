@@ -718,6 +718,24 @@ function cloneDocumentSource(document) {
   return source;
 }
 
+function setItemRewardQuantity(itemData, quantity = 1) {
+  const count = Math.max(Number.parseInt(quantity, 10) || 1, 1);
+  if (count <= 1) return itemData;
+  const current = Math.max(Number.parseInt(foundry.utils.getProperty(itemData, "system.quantity"), 10) || 1, 1);
+  foundry.utils.setProperty(itemData, "system.quantity", current * count);
+  return itemData;
+}
+
+async function prepareItemRewardData(itemData, facility, actor, boon, rewardDoc, requestingUser = game.user, options = {}) {
+  setItemRewardQuantity(itemData, options.quantity);
+  applyBoonRewardIdentity(itemData, boon, rewardDoc);
+  for (const effectData of Array.isArray(itemData.effects) ? itemData.effects : []) {
+    const duration = await prepareBastionDurationRewardData(effectData, facility, actor, requestingUser, options);
+    if (duration?.remainingTurns !== null) foundry.utils.setProperty(itemData, BASTION_DURATION_FLAG, duration);
+  }
+  return itemData;
+}
+
 function getBoonRewardSourceKey(boon, rewardDoc) {
   const rewardUuid = String(boon?.rewardUuid ?? rewardDoc?.uuid ?? "").trim();
   if (rewardUuid) return rewardUuid;
@@ -832,7 +850,23 @@ function getBastionDurationFromEffectData(effectData) {
   return { expireNextTurn, remainingTurns, durationFormula, consumePerTurn };
 }
 
-async function prepareBastionDurationRewardData(effectData, facility, actor, requestingUser = game.user) {
+function stripEffectChanges(effectData, prefix) {
+  const existingChanges = Array.isArray(effectData.changes) ? effectData.changes : [];
+  effectData.changes = existingChanges.filter(change => !String(change?.key ?? "").startsWith(prefix));
+}
+
+function stripBastionDurationData(effectData) {
+  delete effectData.flags?.[MODULE_ID]?.bastionDuration;
+  stripEffectChanges(effectData, BASTION_DURATION_CHANGE_PREFIX);
+}
+
+function stripVentureModifierData(effectData) {
+  delete effectData.flags?.[MODULE_ID]?.ventureModifier;
+  delete effectData.flags?.[MODULE_ID]?.ventureModifierTemplate;
+  stripEffectChanges(effectData, `flags.${MODULE_ID}.ventureModifier.`);
+}
+
+async function prepareBastionDurationRewardData(effectData, facility, actor, requestingUser = game.user, { rollDurationFormula = true } = {}) {
   const duration = getBastionDurationFromEffectData(effectData);
   if (!duration) return null;
 
@@ -845,6 +879,10 @@ async function prepareBastionDurationRewardData(effectData, facility, actor, req
 
   const hasRemainingTurns = (duration.remainingTurns !== null);
   if (!hasRemainingTurns && duration.durationFormula) {
+    if (!rollDurationFormula) {
+      stripBastionDurationData(effectData);
+      return null;
+    }
     let durationRoll;
     try {
       durationRoll = await requestUserRoll({
@@ -870,6 +908,11 @@ async function prepareBastionDurationRewardData(effectData, facility, actor, req
     });
   }
 
+  if (duration.remainingTurns === null) {
+    stripBastionDurationData(effectData);
+    return null;
+  }
+
   foundry.utils.setProperty(effectData, BASTION_DURATION_FLAG, duration);
   const existingChanges = Array.isArray(effectData.changes) ? effectData.changes : [];
   effectData.changes = existingChanges.filter(change => {
@@ -886,10 +929,14 @@ async function prepareBastionDurationRewardData(effectData, facility, actor, req
   return duration;
 }
 
-async function prepareActiveEffectRewardData(effectData, facility, actor, requestingUser = game.user) {
-  await prepareBastionDurationRewardData(effectData, facility, actor, requestingUser);
+async function prepareActiveEffectRewardData(effectData, facility, actor, requestingUser = game.user, options = {}) {
+  await prepareBastionDurationRewardData(effectData, facility, actor, requestingUser, options);
 
   const modifierPath = `flags.${MODULE_ID}.ventureModifier`;
+  if (options.allowVentureModifier === false) {
+    stripVentureModifierData(effectData);
+    return effectData;
+  }
   if (!foundry.utils.hasProperty(effectData, modifierPath)) return effectData;
 
   const modifier = foundry.utils.deepClone(foundry.utils.getProperty(effectData, modifierPath) ?? {});
@@ -952,7 +999,7 @@ async function prepareActiveEffectRewardData(effectData, facility, actor, reques
   return effectData;
 }
 
-async function grantBoonReward(actor, facility, boon, requestingUser = game.user) {
+export async function grantBoonReward(actor, facility, boon, requestingUser = game.user, options = {}) {
   if (!boon.rewardUuid) return null;
 
   const rewardDoc = await fromUuid(boon.rewardUuid);
@@ -963,18 +1010,20 @@ async function grantBoonReward(actor, facility, boon, requestingUser = game.user
   }
 
   if (rewardDoc.documentName === "Item") {
-    await actor.createEmbeddedDocuments("Item", [cloneDocumentSource(rewardDoc)]);
+    const itemData = await prepareItemRewardData(cloneDocumentSource(rewardDoc), facility, actor, boon, rewardDoc, requestingUser, options);
+    await actor.createEmbeddedDocuments("Item", [itemData]);
     moduleLog("Boon reward granted: item", {
       actor: actor.name,
       facility: facility.name,
       rewardUuid: boon.rewardUuid,
-      reward: rewardDoc.name
+      reward: rewardDoc.name,
+      quantity: Math.max(Number.parseInt(options.quantity, 10) || 1, 1)
     });
     return rewardDoc.name;
   }
 
   if (rewardDoc.documentName === "ActiveEffect") {
-    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility, actor, requestingUser);
+    const effectData = await prepareActiveEffectRewardData(cloneDocumentSource(rewardDoc), facility, actor, requestingUser, options);
     const hasVentureModifier = foundry.utils.hasProperty(effectData, `flags.${MODULE_ID}.ventureModifier`);
     const targetDocument = hasVentureModifier && facility?.createEmbeddedDocuments
       ? facility

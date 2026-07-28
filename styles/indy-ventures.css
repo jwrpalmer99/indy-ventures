@@ -926,6 +926,7 @@
 .dnd5e2.sheet.actor.character.indy-shared-bastion-sheet .window-content {
   display: flex;
   flex-direction: column;
+  margin-top: 0;
   margin-block-start: 0;
   min-height: 0;
   overflow-x: hidden;
@@ -1174,6 +1175,116 @@
 
 .tidy5e-sheet .indy-venture-facilities-tidy .facility.empty [data-indy-venture-slot] i {
   flex: 0 0 auto;
+}
+
+.indy-standard-boons-actor,
+.indy-standard-boons {
+  display: grid;
+  gap: 0.35rem;
+  margin-block-start: 0.45rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.facility:has(.indy-standard-boon-config[open]) {
+  position: relative;
+  z-index: 20;
+}
+
+.indy-standard-boons:has(.indy-standard-boon-config[open]) {
+  position: relative;
+  z-index: 21;
+}
+
+.indy-standard-boons-actor {
+  grid-template-columns: max-content 5rem max-content;
+  align-items: center;
+  margin: 0 0 0.6rem;
+}
+
+.indy-standard-boons-actor label {
+  display: contents;
+}
+
+.indy-standard-boons-title {
+  font-weight: 700;
+}
+
+.indy-standard-boon-active,
+.indy-standard-boon-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.indy-standard-boon-active span,
+.indy-standard-boon-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.indy-standard-boon-option button,
+.indy-standard-boon-active button,
+.indy-standard-boons-actor button,
+.indy-standard-boon-config button {
+  flex: 0 0 auto;
+}
+
+.indy-standard-boon-config {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: #20242c;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.indy-standard-boon-config > label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.indy-standard-boon-config > label input {
+  width: 5rem;
+}
+
+.indy-standard-boon-config-rows {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.indy-standard-boon-config-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+  align-items: stretch;
+  padding: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: #252a33;
+}
+
+.indy-standard-boon-config-row label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.indy-standard-boon-config-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.indy-standard-boon-config-row button {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--form-field-height, 32px);
 }
 
 .indy-shared-bastion-config .indy-shared-bastion-form {
