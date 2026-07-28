@@ -61,6 +61,26 @@ In the boon editor, a GM can set:
 - Whether the boon is only available after a profitable turn, after a loss, or at any time.
 - Optional boon groups, so several boons can share a purchase limit.
 
+## Facility Boons
+
+Facility boons are separate from venture boons. They can be configured on normal D&D5e bastion rooms and facilities, including basic facilities, special facilities, and facilities shown on the **Shared Bastion Sheet**. They do not use venture treasury, venture dice, profit/loss rolls, purchase windows, or venture-only reward options.
+
+GM controls for facility boons are only shown while the bastion sheet is in edit mode. Open the boon editor on a facility to set:
+
+- Name and bastion-turn duration.
+- GP cost paid by the character starting the boon.
+- GP reward and optional item or active-effect reward.
+- Required hirelings assigned to that facility.
+- How many times that facility can start boons each bastion turn.
+- The total number of facility boons the bastion can start each bastion turn.
+- How many reward claims are available when the boon completes.
+
+Costs are paid from the starting character's currency and can auto-convert equivalent coins, such as platinum to gold. On a non-shared bastion, completed rewards are collected by the bastion owner character. If a boon grants multiple copies of an item, the module adds them as one stacked reward item instead of separate copies.
+
+On a shared bastion, the starting cost is paid by the requesting player's assigned character, not by the shared bastion actor. Completed rewards are also granted to the collecting player's assigned character. The GM can set a shared reward pool, such as 3 rewards for a bastion with 5 owners. By default, each player can collect once from that pool; on shared bastions the GM can turn off **Restrict rewards to 1 per player** for a boon so the same player can collect more than once until the reward pool is empty.
+
+Players can start available facility boons from the bastion interface if they can manage the bastion. In-progress boons show their remaining bastion turns and can be cancelled before completion with confirmation. When a bastion turn advances, facility boon progress updates automatically; completed boons show a **Collect** button.
+
 ## Shared Bastion
 
 Shared bastion mode is for campaigns where the party manages one bastion together instead of each player having a separate bastion.

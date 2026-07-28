@@ -429,6 +429,40 @@ async function cancelBoon(facility, id, requestingUser = game.user, { delegate =
   });
 }
 
+async function confirmDeleteBoon(boonName) {
+  const title = game.i18n.localize("INDYVENTURES.StandardBoons.DeleteTitle");
+  const content = `<p>${escapeHtml(game.i18n.format("INDYVENTURES.StandardBoons.DeleteContent", { boon: boonName }))}</p>`;
+  if (foundry.applications?.api?.DialogV2?.confirm) {
+    return foundry.applications.api.DialogV2.confirm({ window: { title }, content });
+  }
+  if (foundry.applications?.api?.Dialog?.confirm) {
+    return foundry.applications.api.Dialog.confirm({ window: { title }, content });
+  }
+  return window.confirm(game.i18n.format("INDYVENTURES.StandardBoons.DeleteContent", { boon: boonName }));
+}
+
+async function deleteCompletedBoon(facility, id, requestingUser = game.user, { delegate = true, notify = true } = {}) {
+  if (delegate && shouldDelegateSharedBoonAction(facility)) {
+    return requestSharedBoonAction("deleteCompletedStandardBoon", facility, { boonId: id });
+  }
+  const actor = facility.actor;
+  if (!requestingUser?.isGM) {
+    return actionResult(false, "warn", "INDYVENTURES.StandardBoons.GMOnly", {}, notify);
+  }
+  return withFacilityVentureLock(facility.uuid, async () => {
+    const data = getFacilityData(facility);
+    const boon = data.active.find(entry => entry.id === id);
+    if (!boon || !boon.complete) return actionResult(false, "warn", "INDYVENTURES.StandardBoons.MissingBoon", {}, notify);
+    await facility.setFlag(MODULE_ID, FLAG, {
+      ...data,
+      active: data.active.filter(entry => entry.id !== id)
+    });
+    const result = actionResult(true, "info", "INDYVENTURES.StandardBoons.Deleted", { boon: boon.name }, notify);
+    actor.sheet?.render(false);
+    return result;
+  });
+}
+
 function rewardLabel(boon) {
   const rewardUuid = String(boon.rewardUuid ?? "");
   if (!rewardUuid) return "";
@@ -555,6 +589,7 @@ function renderFacilityPanel(actor, facility, element, editMode = false) {
           ${hirelingStatus ? `<span>${escapeHtml(hirelingStatus)}</span>` : ""}
           ${claimStatus ? `<span>${escapeHtml(claimStatus)}</span>` : ""}
           ${entry.complete && canUse && (!sharedBastion || claimsLeft > 0) && !userClaimed ? `<button type="button" data-action="collectStandardBoon" data-standard-boon-id="${escapeHtml(entry.id)}">${game.i18n.localize("INDYVENTURES.StandardBoons.Collect")}</button>` : ""}
+          ${entry.complete && game.user?.isGM && editMode ? `<button type="button" data-action="deleteCompletedStandardBoon" data-standard-boon-id="${escapeHtml(entry.id)}" data-standard-boon-name="${escapeHtml(entry.name)}">${game.i18n.localize("INDYVENTURES.StandardBoons.Delete")}</button>` : ""}
           ${!entry.complete && canUse ? `<button type="button" data-action="cancelStandardBoon" data-standard-boon-id="${escapeHtml(entry.id)}" data-standard-boon-name="${escapeHtml(entry.name)}">${game.i18n.localize("INDYVENTURES.StandardBoons.Cancel")}</button>` : ""}
         </div>`;
       }).join("")
@@ -644,6 +679,7 @@ function bindStandardBoonEvents(root, actor) {
       && !action.startsWith("startStandardBoon")
       && !action.startsWith("collectStandardBoon")
       && !action.startsWith("cancelStandardBoon")
+      && !action.startsWith("deleteCompletedStandardBoon")
       && !action.startsWith("addStandardBoon")
       && !action.startsWith("removeStandardBoon")) return;
     const facilityRoot = target.closest(".indy-standard-boons");
@@ -669,6 +705,11 @@ function bindStandardBoonEvents(root, actor) {
     if (action === "cancelStandardBoon") {
       return confirmCancelBoon(target.dataset.standardBoonName).then(confirmed => (
         confirmed ? cancelBoon(facility, target.dataset.standardBoonId) : null
+      ));
+    }
+    if (action === "deleteCompletedStandardBoon") {
+      return confirmDeleteBoon(target.dataset.standardBoonName).then(confirmed => (
+        confirmed ? deleteCompletedBoon(facility, target.dataset.standardBoonId) : null
       ));
     }
   });
@@ -767,6 +808,13 @@ async function onStandardBoonActionRequest(payload) {
       );
     } else if (payload.action === "cancelStandardBoon") {
       result = await cancelBoon(
+        facility,
+        payload.buttonData?.boonId,
+        requestingUser,
+        { delegate: false, notify: false }
+      );
+    } else if (payload.action === "deleteCompletedStandardBoon") {
+      result = await deleteCompletedBoon(
         facility,
         payload.buttonData?.boonId,
         requestingUser,
