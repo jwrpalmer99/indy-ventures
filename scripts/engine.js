@@ -16,9 +16,11 @@ import {
 } from "./utils.js";
 import { moduleLog } from "./logger.js";
 import {
+  canViewActorVentures,
   getPreferredVentureUser,
   getVentureSummaryWhisperUserIds,
   isIndyVentureFacility,
+  isSharedBastionActor,
   withFacilityVentureLock
 } from "./shared-bastion.js";
 import { processStandardBoonTurn } from "./standard-boons.js";
@@ -907,6 +909,23 @@ function collectActiveBastionDurationEffects(actor) {
     });
   }
   return trackedEffects;
+}
+
+function collectBastionDurationActors(actor) {
+  const actors = new Map();
+  const add = candidate => {
+    if (candidate?.documentName === "Actor" && candidate.type === "character" && candidate.uuid) {
+      actors.set(candidate.uuid, candidate);
+    }
+  };
+  add(actor);
+  if (isSharedBastionActor(actor)) {
+    for (const user of game.users ?? []) {
+      if (user?.isGM || !canViewActorVentures(actor, user, "LIMITED")) continue;
+      add(user.character);
+    }
+  }
+  return Array.from(actors.values());
 }
 
 function queueModifierDurationUsage(usageMap, trackedEffects) {
@@ -2085,7 +2104,8 @@ export async function processActorVenturesFromBastionMessage(message) {
   const results = [];
   const turnId = message.uuid;
   const modifierDurationUsage = new Map();
-  const bastionDurationEffects = collectActiveBastionDurationEffects(actor);
+  const bastionDurationEffects = collectBastionDurationActors(actor)
+    .flatMap(durationActor => collectActiveBastionDurationEffects(durationActor));
   queueModifierDurationUsage(modifierDurationUsage, bastionDurationEffects);
   const standardBoonsProcessed = await processStandardBoonTurn(actor, turnId);
 
